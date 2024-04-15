@@ -1,9 +1,10 @@
 {
   "name": "mealprep-be",
   "version": "1.0.0",
-  "description": "A boilerplate for Node.js RESTful API with MongoDB",
+  "description": "Mealprep backend repository",
   "scripts": {
-    "start": "nodemon server.js",
+    "start": "node server.js",
+    "dev": "nodemon server.js",
     "lint": "standard"
   },
   "author": "Build Your Innovation",

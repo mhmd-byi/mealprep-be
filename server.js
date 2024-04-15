@@ -11,7 +11,8 @@ const Task = require('./api/models/todoListModel');
 // created model loading here
 
 const bodyParser = require('body-parser');
-const routes = require('./api/routes/todoListRoutes');
+const todoRoutes = require('./api/routes/todoListRoutes');
+const userRoutes = require('./api/routes/userRoutes');
 
 // mongoose instance connection url connection
 mongoose.Promise = global.Promise;
@@ -31,7 +32,8 @@ app.get('/', (req, res) => {
   res.send('Hello');
 });
 
-routes.todoListRoutes(app); // register the route
+todoRoutes.todoListRoutes(app); // register the route
+userRoutes.userRoutes(app); // register the route
 
 app.listen(port, () => {
   console.log('Node.js + MongoDB RESTful API server started on: ' + port);
