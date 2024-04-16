@@ -1,5 +1,8 @@
 const User = require('../models/userModel');
+const { sendEmail } = require('../utils/emailjs');
+const crypto = require('crypto');
 
+// Create a new User API
 const createUser = function(req, res) {
     const newUser = new User(req.body);
     newUser.save(function(err, user) {
@@ -10,6 +13,7 @@ const createUser = function(req, res) {
   });
 };
 
+// Get All Users API
 const getAllUsers = function(req, res) {
   User.find({}, function(err, users) {
       if (err) {
@@ -20,6 +24,7 @@ const getAllUsers = function(req, res) {
   });
 };
 
+// Get User By ID API
 const getUserById = function(req, res) {
   User.findById(req.params.userId, function(err, user) {
       if (err) {
@@ -32,6 +37,7 @@ const getUserById = function(req, res) {
   });
 };
 
+// Update User API
 const updateUser = async function(req, res) {
   try {
     const updatedUser = await User.findOneAndUpdate(
@@ -49,6 +55,7 @@ const updateUser = async function(req, res) {
   }
 };
 
+// Delete User API
 const deleteUser = function(req, res) {
   User.remove(
     {
@@ -63,6 +70,18 @@ const deleteUser = function(req, res) {
   );
 };
 
+// Forgot and Reset Password API
+const forgotPassword = async function(req, res) {
+  const user = await User.findOne({ email: req.body.email });
+  console.log('this is user', user)
+  if (user) {
+    await sendEmail(user.email);
+    res.send('email sent')
+  } else {
+    res.send('error sending email')
+  }
+};
+
 
 module.exports = {
     createUser,
@@ -70,4 +89,7 @@ module.exports = {
     getUserById,
     updateUser,
     deleteUser,
+    forgotPassword,
+    // requestPasswordReset,
+    // resetPassword,
 }

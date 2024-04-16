@@ -1,7 +1,7 @@
 const express = require('express');
 
 const app = express();
-
+const cors = require("cors");
 const port = process.env.PORT || 3000;
 require('dotenv').config()
 const mongoose = require('mongoose');
@@ -27,6 +27,7 @@ mongoose
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
+app.use(cors());
 
 app.get('/', (req, res) => {
   res.send('Hello');

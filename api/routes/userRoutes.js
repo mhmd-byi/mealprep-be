@@ -11,7 +11,18 @@ const userRoutes = function(app) {
     .get(user.getUserById)
     .patch(user.updateUser)
     .delete(user.deleteUser);
+
+    app.route('/user/forgot-password').post(user.forgotPassword)
+
+    // app
+    //     .route('/user/requestPasswordReset')
+    //     .post(user.requestPasswordReset);
+
+    // app
+    //     .route('/user/resetPassword')
+    //     .post(user.resetPassword);
 };
+
 
 module.exports = {
     userRoutes,
