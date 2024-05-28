@@ -13,11 +13,16 @@ const userSchema = new Schema({
   },
   email: {
     type: String,
-    required: 'Kindly enter your email'
+    required: 'Kindly enter your email',
+    unique: true,
   },
   password: {
     type: String,
     required: 'Kindly enter your password'
+  },
+  confirmPassword: {
+    type: String,
+    required: 'Kindly confirm your password'
   },
   // Token to reset password
   resetLink: {
@@ -27,6 +32,10 @@ const userSchema = new Schema({
   mobile: {
     type: String,
     required: 'Kindly enter mobile number'
+  },
+  postalAddress: {
+    type: String,
+    required: 'Kindly enter your postal address'
   },
   age: {
     type: Number

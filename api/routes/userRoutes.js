@@ -5,6 +5,10 @@ const userRoutes = function(app) {
     .route('/user')
     .get(user.getAllUsers)
     .post(user.createUser);
+  
+    app
+    .route('/user/login')
+    .post(user.getUserByEmailAndPassword)
 
   app
     .route('/user/:userId')

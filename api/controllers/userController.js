@@ -1,53 +1,153 @@
+const moment = require('moment');
 const User = require('../models/userModel');
 const { sendEmail } = require('../utils/emailjs');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
+const Token = require('../models/token');
+
+const generateToken = (userId, expires, type) => {
+  const payload = {
+    sub: userId,
+    iat: moment().unix(),
+    exp: expires.unix(),
+    type
+  };
+  return jwt.sign(payload, 'asdfghjkL007');
+};
+
+const saveToken = async (token, userId, expires, type, blacklisted = false) => {
+  const tokenDoc = await Token.create({
+    token,
+    user: userId,
+    expires: expires.toDate(),
+    type,
+    blacklisted
+  });
+  return tokenDoc;
+};
+
+const generateAuthTokens = async user => {
+  const accessTokenExpires = moment().add(30, 'minutes');
+  const accessToken = generateToken(user.id, accessTokenExpires, 'access');
+
+  const refreshTokenExpires = moment().add(1, 'days');
+  const refreshToken = generateToken(user.id, refreshTokenExpires, 'refresh');
+  await saveToken(refreshToken, user.id, refreshTokenExpires, 'refresh');
+
+  return {
+    access: {
+      token: accessToken,
+      expires: accessTokenExpires.toDate()
+    },
+    refresh: {
+      token: refreshToken,
+      expires: refreshTokenExpires.toDate()
+    }
+  };
+};
+
+class ApiError extends Error {
+  constructor(message, statusCode) {
+    super(message);
+    this.statusCode = statusCode;
+    this.isOperational = true;
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
 
 // Create a new User API
-const createUser = function(req, res) {
-    const newUser = new User(req.body);
-    newUser.save(function(err, user) {
-    if (err) {
-      res.send(err);
+const createUser = async function(req, res) {
+  try {
+    const emails = await User.find({ email: req.body.email });
+    const mobiles = await User.find({ mobile: req.body.mobile });
+    if (emails.length > 0) {
+      throw new ApiError('Email already taken', 400);
     }
-    res.json(user);
-  });
+    if (mobiles.length > 0) {
+      throw new ApiError('Phone number already taken', 400);
+    }
+    const newUser = new User(req.body);
+    newUser.save(async function(err, user) {
+      if (err) {
+        throw new ApiError('Database error on user creation', 500);
+      }
+      const tokens = await generateAuthTokens(user);
+      const userData = { user, tokens };
+      res.json(userData);
+    });
+  } catch (e) {
+    res.status(e.statusCode || 500).send({ message: e.message });
+  }
+};
+
+const validateUserCredentials = async (email, password) => {
+  try {
+    const user = await User.findOne({ email });
+    if (user.password === password) {
+      return user;
+    }
+    return null;
+  } catch (err) {
+    console.error('Error during authentication:', err);
+    throw new Error('Authentication failed');
+  }
+};
+
+// Login User API
+const getUserByEmailAndPassword = async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const user = await validateUserCredentials(email, password);
+    console.log(user);
+
+    if (user) {
+      const tokens = await generateAuthTokens(user);
+      res.json({
+        message: 'Login successful',
+        tokens,
+        userId: user.id
+      });
+    } else {
+      res.status(401).json({ message: 'Invalid email or password' });
+    }
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
 };
 
 // Get All Users API
 const getAllUsers = function(req, res) {
   User.find({}, function(err, users) {
-      if (err) {
-          res.status(500).send(err);
-      } else {
-          res.json(users);
-      }
+    if (err) {
+      res.status(500).send(err);
+    } else {
+      res.json(users);
+    }
   });
 };
 
 // Get User By ID API
 const getUserById = function(req, res) {
   User.findById(req.params.userId, function(err, user) {
-      if (err) {
-          res.send(err);
-      } else if (!user) {
-          res.status(404).send({ message: "User not found with id " + req.params.userId });
-      } else {
-          res.json(user);
-      }
+    if (err) {
+      res.send(err);
+    } else if (!user) {
+      res.status(404).send({ message: 'User not found with id ' + req.params.userId });
+    } else {
+      res.json(user);
+    }
   });
 };
 
 // Update User API
 const updateUser = async function(req, res) {
   try {
-    const updatedUser = await User.findOneAndUpdate(
-      { _id: req.params.userId }, 
-      req.body, 
-      { new: true } 
-    );
+    const updatedUser = await User.findOneAndUpdate({ _id: req.params.userId }, req.body, { new: true });
 
     if (!updatedUser) {
-      return res.status(404).send({ message: "User not found with id " + req.params.userId });
+      return res.status(404).send({ message: 'User not found with id ' + req.params.userId });
     }
     res.json(updatedUser);
   } catch (err) {
@@ -73,23 +173,23 @@ const deleteUser = function(req, res) {
 // Forgot and Reset Password API
 const forgotPassword = async function(req, res) {
   const user = await User.findOne({ email: req.body.email });
-  console.log('this is user', user)
+  console.log('this is user', user);
   if (user) {
     await sendEmail(user.email);
-    res.send('email sent')
+    res.send('email sent');
   } else {
-    res.send('error sending email')
+    res.send('error sending email');
   }
 };
 
-
 module.exports = {
-    createUser,
-    getAllUsers,
-    getUserById,
-    updateUser,
-    deleteUser,
-    forgotPassword,
-    // requestPasswordReset,
-    // resetPassword,
-}
+  createUser,
+  getAllUsers,
+  getUserById,
+  updateUser,
+  deleteUser,
+  forgotPassword,
+  getUserByEmailAndPassword
+  // requestPasswordReset,
+  // resetPassword,
+};
