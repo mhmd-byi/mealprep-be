@@ -146,13 +146,15 @@ const getUserById = function(req, res) {
 
 // Update User API
 const updateUser = async function(req, res) {
-  try {
-    const updateData = {
-      ...req.body,
-      profileImageUrl: req.body.profileImageUrl // Ensure this field is included in the body
-    };
+  let updateData = {...req.body};
+  updateData = Object.fromEntries(Object.entries(updateData).filter(([_, v]) => v != null && v !== ''));
 
-    const updatedUser = await User.findOneAndUpdate({ _id: req.params.userId }, updateData, { new: true });
+  try {
+    const updatedUser = await User.findOneAndUpdate(
+      { _id: req.params.userId },
+      updateData,
+      { new: true }
+    );
 
     if (!updatedUser) {
       return res.status(404).send({ message: 'User not found with id ' + req.params.userId });
@@ -162,7 +164,6 @@ const updateUser = async function(req, res) {
     res.status(500).send(err);
   }
 };
-
 
 // Delete User API
 const deleteUser = function(req, res) {
