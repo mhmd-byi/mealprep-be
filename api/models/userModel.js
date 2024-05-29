@@ -36,6 +36,9 @@ const userSchema = new Schema({
   postalAddress: {
     type: String,
     required: 'Kindly enter your postal address'
+  }, 
+  profileImageUrl: {
+    type: String,
   },
   age: {
     type: Number

@@ -4,6 +4,7 @@ const { sendEmail } = require('../utils/emailjs');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const Token = require('../models/token');
+const bcrypt = require('bcrypt');
 
 const generateToken = (userId, expires, type) => {
   const payload = {
@@ -83,10 +84,11 @@ const createUser = async function(req, res) {
 const validateUserCredentials = async (email, password) => {
   try {
     const user = await User.findOne({ email });
-    if (user.password === password) {
-      return user;
+    if (!user) {
+      return null;
     }
-    return null;
+    const isMatch = await bcrypt.compare(password, user.password);
+    return isMatch ? user : null;
   } catch (err) {
     console.error('Error during authentication:', err);
     throw new Error('Authentication failed');
@@ -99,7 +101,6 @@ const getUserByEmailAndPassword = async (req, res) => {
 
   try {
     const user = await validateUserCredentials(email, password);
-    console.log(user);
 
     if (user) {
       const tokens = await generateAuthTokens(user);
@@ -117,6 +118,7 @@ const getUserByEmailAndPassword = async (req, res) => {
   }
 };
 
+
 // Get All Users API
 const getAllUsers = function(req, res) {
   User.find({}, function(err, users) {
@@ -130,6 +132,7 @@ const getAllUsers = function(req, res) {
 
 // Get User By ID API
 const getUserById = function(req, res) {
+  console.log('this is iser id', req.params)
   User.findById(req.params.userId, function(err, user) {
     if (err) {
       res.send(err);
@@ -144,7 +147,12 @@ const getUserById = function(req, res) {
 // Update User API
 const updateUser = async function(req, res) {
   try {
-    const updatedUser = await User.findOneAndUpdate({ _id: req.params.userId }, req.body, { new: true });
+    const updateData = {
+      ...req.body,
+      profileImageUrl: req.body.profileImageUrl // Ensure this field is included in the body
+    };
+
+    const updatedUser = await User.findOneAndUpdate({ _id: req.params.userId }, updateData, { new: true });
 
     if (!updatedUser) {
       return res.status(404).send({ message: 'User not found with id ' + req.params.userId });
@@ -154,6 +162,7 @@ const updateUser = async function(req, res) {
     res.status(500).send(err);
   }
 };
+
 
 // Delete User API
 const deleteUser = function(req, res) {
