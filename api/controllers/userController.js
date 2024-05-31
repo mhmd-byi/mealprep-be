@@ -147,6 +147,13 @@ const getUserById = function(req, res) {
 // Update User API
 const updateUser = async function(req, res) {
   let updateData = {...req.body};
+
+  // Check if the password is provided and needs updating
+  if (updateData.password) {
+    const salt = await bcrypt.genSalt(10); // Generate salt
+    updateData.password = await bcrypt.hash(updateData.password, salt); // Hash the new password
+  }
+
   updateData = Object.fromEntries(Object.entries(updateData).filter(([_, v]) => v != null && v !== ''));
 
   try {
@@ -164,6 +171,7 @@ const updateUser = async function(req, res) {
     res.status(500).send(err);
   }
 };
+
 
 // Delete User API
 const deleteUser = function(req, res) {
@@ -192,6 +200,34 @@ const forgotPassword = async function(req, res) {
   }
 };
 
+// Logout API
+const logout = async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    console.log('Received refreshToken:', refreshToken);
+
+    if (!refreshToken) {
+      return res.status(400).json({ message: 'Refresh token is required' });
+    }
+    const updatedToken = await Token.findOneAndUpdate(
+      { token: refreshToken },
+      { blacklisted: true },
+      { new: true }
+    );
+
+    if (!updatedToken) {
+      return res.status(404).json({ message: 'Refresh token not found' });
+    }
+
+    res.json({ message: 'Logout successful' });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
+
 module.exports = {
   createUser,
   getAllUsers,
@@ -199,7 +235,8 @@ module.exports = {
   updateUser,
   deleteUser,
   forgotPassword,
-  getUserByEmailAndPassword
+  getUserByEmailAndPassword,
+  logout
   // requestPasswordReset,
   // resetPassword,
 };
