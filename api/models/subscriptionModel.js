@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
-const userSchema = new Schema(
+const subscriptionSchema = new Schema(
   {
     userId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -27,4 +27,4 @@ const userSchema = new Schema(
   }
 );
 
-module.exports = mongoose.model('Users', userSchema);
+module.exports = mongoose.model('Subscription', subscriptionSchema);

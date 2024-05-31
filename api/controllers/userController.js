@@ -1,5 +1,6 @@
 const moment = require('moment');
 const User = require('../models/userModel');
+const Subscription = require('../models/subscriptionModel');
 const { sendEmail } = require('../utils/emailjs');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
@@ -118,7 +119,6 @@ const getUserByEmailAndPassword = async (req, res) => {
   }
 };
 
-
 // Get All Users API
 const getAllUsers = function(req, res) {
   User.find({}, function(err, users) {
@@ -132,7 +132,7 @@ const getAllUsers = function(req, res) {
 
 // Get User By ID API
 const getUserById = function(req, res) {
-  console.log('this is iser id', req.params)
+  console.log('this is iser id', req.params);
   User.findById(req.params.userId, function(err, user) {
     if (err) {
       res.send(err);
@@ -146,7 +146,7 @@ const getUserById = function(req, res) {
 
 // Update User API
 const updateUser = async function(req, res) {
-  let updateData = {...req.body};
+  let updateData = { ...req.body };
 
   // Check if the password is provided and needs updating
   if (updateData.password) {
@@ -157,11 +157,7 @@ const updateUser = async function(req, res) {
   updateData = Object.fromEntries(Object.entries(updateData).filter(([_, v]) => v != null && v !== ''));
 
   try {
-    const updatedUser = await User.findOneAndUpdate(
-      { _id: req.params.userId },
-      updateData,
-      { new: true }
-    );
+    const updatedUser = await User.findOneAndUpdate({ _id: req.params.userId }, updateData, { new: true });
 
     if (!updatedUser) {
       return res.status(404).send({ message: 'User not found with id ' + req.params.userId });
@@ -171,7 +167,6 @@ const updateUser = async function(req, res) {
     res.status(500).send(err);
   }
 };
-
 
 // Delete User API
 const deleteUser = function(req, res) {
@@ -210,11 +205,7 @@ const logout = async (req, res) => {
     if (!refreshToken) {
       return res.status(400).json({ message: 'Refresh token is required' });
     }
-    const updatedToken = await Token.findOneAndUpdate(
-      { token: refreshToken },
-      { blacklisted: true },
-      { new: true }
-    );
+    const updatedToken = await Token.findOneAndUpdate({ token: refreshToken }, { blacklisted: true }, { new: true });
 
     if (!updatedToken) {
       return res.status(404).json({ message: 'Refresh token not found' });
@@ -227,6 +218,72 @@ const logout = async (req, res) => {
   }
 };
 
+const createSubscription = async (req, res) => {
+  try {
+    const { userId, plan, startDate } = req.body;
+
+    if (!userId || !plan || !startDate) {
+      return res.status(400).json({ message: 'Missing required fields: userId, plan, and startDate are required.' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const validPlans = ['Trial Meal Pack', 'Weekly Plan', 'Monthly Plan'];
+    if (!validPlans.includes(plan)) {
+      return res.status(400).json({ message: 'Invalid plan' });
+    }
+
+    // Calculating subscription end date
+    let subscriptionDuration;
+    switch (plan) {
+      case 'Trial Meal Pack':
+        subscriptionDuration = 7; // 7 days
+        break;
+      case 'Weekly Plan':
+        subscriptionDuration = 28; // 28 days
+        break;
+      case 'Monthly Plan':
+        subscriptionDuration = 365; // 365 days
+        break;
+    }
+
+    const subscriptionStartDate = new Date(startDate);
+    const subscriptionEndDate = new Date(subscriptionStartDate.getTime() + subscriptionDuration * 24 * 60 * 60 * 1000);
+
+    // Creating subscription
+    const subscription = new Subscription({
+      userId,
+      subscriptionStartDate,
+      subscriptionEndDate,
+      plan
+    });
+
+    const savedSubscription = await subscription.save();
+    res.status(201).json(savedSubscription);
+  } catch (error) {
+    console.error('Error creating subscription:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
+const getSubscriptionDetails = async (req, res) => {
+  try {
+      const { userId } = req.params;
+      const subscription = await Subscription.findOne({ userId: userId });  // Ensure this query is correct
+      if (!subscription) {
+          return res.status(404).json({ message: 'Subscription not found' });
+      }
+      res.json(subscription);
+  } catch (error) {
+      console.error('Error getting subscription details:', error);
+      res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
+
 
 module.exports = {
   createUser,
@@ -236,7 +293,9 @@ module.exports = {
   deleteUser,
   forgotPassword,
   getUserByEmailAndPassword,
-  logout
+  logout,
+  createSubscription,
+  getSubscriptionDetails
   // requestPasswordReset,
   // resetPassword,
 };

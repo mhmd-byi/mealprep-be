@@ -7,6 +7,12 @@ const userRoutes = function(app) {
 
   app.route('/user/login').post(user.getUserByEmailAndPassword);
 
+
+  app.route('/user/:userId/subscription')
+  .get(user.getSubscriptionDetails)
+  .post(user.createSubscription);
+
+
   app
     .route('/user/:userId')
     .get(user.getUserById)
