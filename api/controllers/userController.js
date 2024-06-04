@@ -240,13 +240,13 @@ const createSubscription = async (req, res) => {
     let subscriptionDuration;
     switch (plan) {
       case 'Trial Meal Pack':
-        subscriptionDuration = 7; // 7 days
+        subscriptionDuration = 2; // 2 days
         break;
       case 'Weekly Plan':
-        subscriptionDuration = 28; // 28 days
+        subscriptionDuration = 7; // 7 days
         break;
       case 'Monthly Plan':
-        subscriptionDuration = 365; // 365 days
+        subscriptionDuration = 30; // 30 days
         break;
     }
 
@@ -271,18 +271,17 @@ const createSubscription = async (req, res) => {
 
 const getSubscriptionDetails = async (req, res) => {
   try {
-      const { userId } = req.params;
-      const subscription = await Subscription.findOne({ userId: userId });  // Ensure this query is correct
-      if (!subscription) {
-          return res.status(404).json({ message: 'Subscription not found' });
-      }
-      res.json(subscription);
+    const { userId } = req.params;
+    const subscription = await Subscription.findOne({ userId: userId });
+    if (!subscription) {
+      return res.json({ isSubscribed: false });
+    }
+    res.json({ isSubscribed: true, subscription });
   } catch (error) {
-      console.error('Error getting subscription details:', error);
-      res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    console.error('Error getting subscription details:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
   }
 };
-
 
 
 module.exports = {
