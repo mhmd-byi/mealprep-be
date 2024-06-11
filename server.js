@@ -28,6 +28,7 @@ mongoose
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(cors());
+app.options('*', cors());
 
 app.get('/', (req, res) => {
   res.send('Hello');

@@ -148,10 +148,9 @@ const getUserById = function(req, res) {
 const updateUser = async function(req, res) {
   let updateData = { ...req.body };
 
-  // Check if the password is provided and needs updating
   if (updateData.password) {
-    const salt = await bcrypt.genSalt(10); // Generate salt
-    updateData.password = await bcrypt.hash(updateData.password, salt); // Hash the new password
+    const salt = await bcrypt.genSalt(10);
+    updateData.password = await bcrypt.hash(updateData.password, salt);
   }
 
   updateData = Object.fromEntries(Object.entries(updateData).filter(([_, v]) => v != null && v !== ''));
@@ -282,7 +281,6 @@ const getSubscriptionDetails = async (req, res) => {
     res.status(500).json({ message: 'Internal Server Error', error: error.message });
   }
 };
-
 
 module.exports = {
   createUser,
