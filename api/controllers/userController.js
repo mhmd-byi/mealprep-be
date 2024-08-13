@@ -290,11 +290,22 @@ const getSubscriptionDetails = async (req, res) => {
 // Add meal Api
 const createMeal = async (req, res) => {
   try {
-    const { userId, date, mealType, items } = req.body;
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'No token provided or token is malformed' });
+    }
 
-    // Check if the user has admin role
-    const user = await User.findById(req.user.id);
-    if (user.role !== 'admin') {
+    const token = authHeader.split(' ')[1];
+    let decoded;
+    try {
+      decoded = jwt.verify(token, 'asdfghjkL007');
+    } catch (error) {
+      return res.status(401).json({ message: 'Invalid Token' });
+    }
+
+    const { userId, date, mealType, items } = req.body;
+    const user = await User.findById(decoded.sub);
+    if (!user || user.role !== 'admin') {
       return res.status(403).json({ message: 'Only admin can create meals' });
     }
 
