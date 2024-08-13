@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const Token = require('../models/token');
 const bcrypt = require('bcrypt');
+const Meal = require('../models/mealModel');
 
 const generateToken = (userId, expires, type) => {
   const payload = {
@@ -68,7 +69,10 @@ const createUser = async function(req, res) {
     if (mobiles.length > 0) {
       throw new ApiError('Phone number already taken', 400);
     }
-    const newUser = new User(req.body);
+    const newUser = new User({
+      ...req.body,
+      role: 'user'
+    });
     newUser.save(async function(err, user) {
       if (err) {
         throw new ApiError('Database error on user creation', 500);
@@ -108,7 +112,8 @@ const getUserByEmailAndPassword = async (req, res) => {
       res.json({
         message: 'Login successful',
         tokens,
-        userId: user.id
+        userId: user.id,
+        role: user.role
       });
     } else {
       res.status(401).json({ message: 'Invalid email or password' });
@@ -282,6 +287,100 @@ const getSubscriptionDetails = async (req, res) => {
   }
 };
 
+// Add meal Api
+const createMeal = async (req, res) => {
+  try {
+    const { userId, date, mealType, items } = req.body;
+
+    // Check if the user has admin role
+    const user = await User.findById(req.user.id);
+    if (user.role !== 'admin') {
+      return res.status(403).json({ message: 'Only admin can create meals' });
+    }
+
+    if (!userId || !date || !mealType || !items || items.length === 0) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+
+    const meal = new Meal({
+      userId,
+      date,
+      mealType,
+      items
+    });
+
+    const savedMeal = await meal.save();
+    res.status(201).json(savedMeal);
+  } catch (error) {
+    console.error('Error creating meal:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
+// Fetch Meal API
+
+const getMeal = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'No token provided or token is malformed' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    let decoded;
+    try {
+      decoded = jwt.verify(token, 'asdfghjkL007');
+    } catch (error) {
+      return res.status(401).json({ message: 'Invalid Token' });
+    }
+
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({ message: 'Date parameter is required' });
+    }
+
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Fetch all meals for the given date, regardless of userId
+    const meals = await Meal.find({
+      date: { $gte: startOfDay, $lte: endOfDay }
+    });
+
+    res.json(meals);
+  } catch (error) {
+    console.error('Error fetching meals:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
+//  Remove Meal Api
+const removeMealItem = async (req, res) => {
+  try {
+    const { mealId, itemId } = req.params;
+    const meal = await Meal.findById(mealId);
+
+    if (!meal) {
+      return res.status(404).json({ message: 'Meal not found' });
+    }
+
+    meal.items = meal.items.filter(item => item._id.toString() !== itemId);
+
+    if (meal.items.length === 0) {
+      await Meal.findByIdAndDelete(mealId);
+    } else {
+      await meal.save();
+    }
+
+    res.json({ message: 'Item removed successfully' });
+  } catch (error) {
+    console.error('Error removing meal item:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
 module.exports = {
   createUser,
   getAllUsers,
@@ -292,7 +391,10 @@ module.exports = {
   getUserByEmailAndPassword,
   logout,
   createSubscription,
-  getSubscriptionDetails
+  getSubscriptionDetails,
   // requestPasswordReset,
   // resetPassword,
+  createMeal,
+  getMeal,
+  removeMealItem
 };

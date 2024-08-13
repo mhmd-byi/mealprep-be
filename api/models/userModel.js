@@ -3,6 +3,11 @@ const Schema = mongoose.Schema;
 const bcrypt = require('bcrypt-nodejs');
 
 const userSchema = new Schema({
+  role: {
+    type: String,
+    enum: ['user', 'admin'],
+    default: 'user'
+  },
   firstName: {
     type: String,
     required: 'Kindly enter your first name'
@@ -14,7 +19,7 @@ const userSchema = new Schema({
   email: {
     type: String,
     required: 'Kindly enter your email',
-    unique: true,
+    unique: true
   },
   password: {
     type: String,
@@ -36,9 +41,9 @@ const userSchema = new Schema({
   postalAddress: {
     type: String,
     required: 'Kindly enter your postal address'
-  }, 
+  },
   profileImageUrl: {
-    type: String,
+    type: String
   },
   age: {
     type: Number
@@ -50,9 +55,9 @@ const userSchema = new Schema({
 });
 
 // hash the password
-userSchema.pre("save", function(next) {
+userSchema.pre('save', function(next) {
   let user = this;
-  if (this.isModified("password") || this.isNew) {
+  if (this.isModified('password') || this.isNew) {
     bcrypt.genSalt(10, function(err, salt) {
       if (err) {
         return next(err);
@@ -76,6 +81,5 @@ userSchema.methods.comparePassword = function(password, next) {
   let user = this;
   return bcrypt.compareSync(password, user.password);
 };
-
 
 module.exports = mongoose.model('Users', userSchema);
