@@ -392,6 +392,40 @@ const removeMealItem = async (req, res) => {
     res.status(500).json({ message: 'Internal Server Error', error: error.message });
   }
 };
+
+const updateMealImageUrl = async (req, res) => {
+  try {
+    const { date, imageUrl, userId } = req.body;
+
+    if (!date || !imageUrl || !userId) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const updatedMeal = await Meal.findOneAndUpdate(
+      {
+        userId,
+        date: { $gte: startOfDay, $lte: endOfDay }
+      },
+      { imageUrl },
+      { new: true }
+    );
+
+    if (!updatedMeal) {
+      return res.status(404).json({ message: 'Meal not found for the given date' });
+    }
+
+    res.json({ message: 'Meal image URL updated successfully', meal: updatedMeal });
+  } catch (error) {
+    console.error('Error updating meal image URL:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
 module.exports = {
   createUser,
   getAllUsers,
@@ -407,5 +441,6 @@ module.exports = {
   // resetPassword,
   createMeal,
   getMeal,
-  removeMealItem
+  removeMealItem,
+  updateMealImageUrl,
 };

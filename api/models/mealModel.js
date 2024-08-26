@@ -9,6 +9,7 @@ const mealItemSchema = new Schema({
   description: { type: String }
 });
 
+// models/mealModel.js
 const mealSchema = new Schema(
   {
     userId: {
@@ -25,7 +26,8 @@ const mealSchema = new Schema(
       required: true,
       enum: ['lunch', 'dinner']
     },
-    items: [mealItemSchema]
+    items: [mealItemSchema],
+    imageUrl: { type: String }
   },
   {
     timestamps: true
