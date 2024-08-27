@@ -28,7 +28,7 @@ const userRoutes = function(app) {
 
   app.route('/remove-meal-item/:mealId/:itemId').delete(user.removeMealItem);
 
-  app.route('/update-meal-image').patch(user.updateMealImageUrl);
+  app.route('/update-meal-image').patch(user.updateOrCreateMealWithImage);
 
   // app
   //     .route('/user/requestPasswordReset')

@@ -313,21 +313,35 @@ const createMeal = async (req, res) => {
       return res.status(400).json({ message: 'Missing required fields' });
     }
 
-    const meal = new Meal({
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+    let existingMeal = await Meal.findOne({
       userId,
-      date,
-      mealType,
-      items
+      date: { $gte: startOfDay, $lte: endOfDay }
     });
 
-    const savedMeal = await meal.save();
-    res.status(201).json(savedMeal);
+    if (existingMeal) {
+      existingMeal.mealType = mealType;
+      existingMeal.items = items;
+      const updatedMeal = await existingMeal.save();
+      res.status(200).json(updatedMeal);
+    } else {
+      const newMeal = new Meal({
+        userId,
+        date,
+        mealType,
+        items
+      });
+      const savedMeal = await newMeal.save();
+      res.status(201).json(savedMeal);
+    }
   } catch (error) {
-    console.error('Error creating meal:', error);
+    console.error('Error creating/updating meal:', error);
     res.status(500).json({ message: 'Internal Server Error', error: error.message });
   }
 };
-
 // Fetch Meal API
 
 const getMeal = async (req, res) => {
@@ -355,8 +369,6 @@ const getMeal = async (req, res) => {
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
-
-    // Fetch all meals for the given date, regardless of userId
     const meals = await Meal.find({
       date: { $gte: startOfDay, $lte: endOfDay }
     });
@@ -393,35 +405,28 @@ const removeMealItem = async (req, res) => {
   }
 };
 
-const updateMealImageUrl = async (req, res) => {
+// upload Image api
+const updateOrCreateMealWithImage = async (req, res) => {
+  const { date, imageUrl, userId } = req.body;
+
+  if (!date || !imageUrl || !userId) {
+    return res.status(400).json({ message: 'Missing required fields: date, imageUrl, and userId are required.' });
+  }
   try {
-    const { date, imageUrl, userId } = req.body;
-
-    if (!date || !imageUrl || !userId) {
-      return res.status(400).json({ message: 'Missing required fields' });
-    }
-
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
+    const update = {
+      $setOnInsert: { userId, date, mealType: 'Default', items: [] },
+      $set: { imageUrl: imageUrl }
+    };
+    const options = { upsert: true, new: true };
+    const meal = await Meal.findOneAndUpdate({ userId, date: { $gte: startOfDay, $lte: endOfDay } }, update, options);
 
-    const updatedMeal = await Meal.findOneAndUpdate(
-      {
-        userId,
-        date: { $gte: startOfDay, $lte: endOfDay }
-      },
-      { imageUrl },
-      { new: true }
-    );
-
-    if (!updatedMeal) {
-      return res.status(404).json({ message: 'Meal not found for the given date' });
-    }
-
-    res.json({ message: 'Meal image URL updated successfully', meal: updatedMeal });
+    res.json({ message: 'Meal image updated successfully', meal });
   } catch (error) {
-    console.error('Error updating meal image URL:', error);
+    console.error('Error updating or creating meal image URL:', error);
     res.status(500).json({ message: 'Internal Server Error', error: error.message });
   }
 };
@@ -442,5 +447,5 @@ module.exports = {
   createMeal,
   getMeal,
   removeMealItem,
-  updateMealImageUrl,
+  updateOrCreateMealWithImage
 };
