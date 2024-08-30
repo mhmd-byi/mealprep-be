@@ -1,5 +1,6 @@
 const moment = require('moment');
 const User = require('../models/userModel');
+const MealCancellation = require('../models/mealcancalation');
 const Subscription = require('../models/subscriptionModel');
 const { sendEmail } = require('../utils/emailjs');
 const crypto = require('crypto');
@@ -431,6 +432,62 @@ const updateOrCreateMealWithImage = async (req, res) => {
   }
 };
 
+const cancelMeal = async (req, res) => {
+  try {
+    const { userId, date, mealType } = req.body;
+
+    if (!userId || !date || !mealType) {
+      return res.status(400).json({ message: 'Missing required fields: userId, date, and mealType are required.' });
+    }
+
+    const cancellationDate = new Date(date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (cancellationDate <= today) {
+      return res.status(400).json({ message: 'Cannot cancel meals for today or past dates.' });
+    }
+
+    const newCancellation = new MealCancellation({
+      userId,
+      date: cancellationDate,
+      mealType
+    });
+
+    await newCancellation.save();
+
+    res.json({ message: 'Meal cancellation request submitted successfully' });
+  } catch (error) {
+    console.error('Error cancelling meal:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
+const getCancelledMeals = async (req, res) => {
+  try {
+    const cancelledMeals = await MealCancellation.find()
+      .populate('userId', 'firstName lastName')
+      .lean();
+
+    if (cancelledMeals.length === 0) {
+      return res.status(404).json({ message: "No cancelled meals found." });
+    }
+
+    const formattedMeals = cancelledMeals.map(meal => ({
+      userId: meal.userId._id,
+      name: `${meal.userId.firstName} ${meal.userId.lastName}`,
+      date: meal.date,
+      mealType: meal.mealType
+    }));
+
+    res.json(formattedMeals);
+  } catch (error) {
+    res.status(500).json({ message: "Internal Server Error", error: error.message });
+  }
+};
+
+
+
 module.exports = {
   createUser,
   getAllUsers,
@@ -447,5 +504,7 @@ module.exports = {
   createMeal,
   getMeal,
   removeMealItem,
-  updateOrCreateMealWithImage
+  updateOrCreateMealWithImage,
+  cancelMeal,
+  getCancelledMeals
 };
