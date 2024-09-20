@@ -13,14 +13,14 @@ const subscriptionSchema = new Schema(
       required: true,
       default: Date.now
     },
-    subscriptionEndDate: {
-      type: Date,
-      required: true
-    },
     plan: {
       type: String,
       required: true
-    }
+    },
+    meals: {
+      type: Number,
+      required: true,
+    },
   },
   {
     timestamps: true

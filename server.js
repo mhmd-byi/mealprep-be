@@ -13,6 +13,8 @@ const Task = require('./api/models/todoListModel');
 const bodyParser = require('body-parser');
 const todoRoutes = require('./api/routes/todoListRoutes');
 const userRoutes = require('./api/routes/userRoutes');
+const mealRoutes = require('./api/routes/mealRoutes');
+const subscriptionRoutes = require('./api/routes/subscriptionRoutes');
 
 // mongoose instance connection url connection
 mongoose.Promise = global.Promise;
@@ -38,6 +40,8 @@ app.get('/', (req, res) => {
 
 todoRoutes.todoListRoutes(app); // register the route
 userRoutes.userRoutes(app); // register the route
+mealRoutes.mealRoutes(app); // register meal routes
+subscriptionRoutes.subscriptionRoutes(app); // register subscription routes
 
 app.listen(port, () => {
   console.log('Node.js + MongoDB RESTful API server started on: ' + port);

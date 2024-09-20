@@ -1,13 +1,10 @@
 const moment = require('moment');
 const User = require('../models/userModel');
-const MealCancellation = require('../models/mealcancalation');
-const Subscription = require('../models/subscriptionModel');
 const { sendEmail } = require('../utils/emailjs');
-const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const Token = require('../models/token');
 const bcrypt = require('bcrypt');
-const Meal = require('../models/mealModel');
+require('dotenv').config()
 
 const generateToken = (userId, expires, type) => {
   const payload = {
@@ -16,7 +13,7 @@ const generateToken = (userId, expires, type) => {
     exp: expires.unix(),
     type
   };
-  return jwt.sign(payload, 'asdfghjkL007');
+  return jwt.sign(payload, process.env.JWT_SECRET);
 };
 
 const saveToken = async (token, userId, expires, type, blacklisted = false) => {
@@ -223,270 +220,6 @@ const logout = async (req, res) => {
   }
 };
 
-const createSubscription = async (req, res) => {
-  try {
-    const { userId, plan, startDate } = req.body;
-
-    if (!userId || !plan || !startDate) {
-      return res.status(400).json({ message: 'Missing required fields: userId, plan, and startDate are required.' });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    const validPlans = ['Trial Meal Pack', 'Weekly Plan', 'Monthly Plan'];
-    if (!validPlans.includes(plan)) {
-      return res.status(400).json({ message: 'Invalid plan' });
-    }
-
-    // Calculating subscription end date
-    let subscriptionDuration;
-    switch (plan) {
-      case 'Trial Meal Pack':
-        subscriptionDuration = 2; // 2 days
-        break;
-      case 'Weekly Plan':
-        subscriptionDuration = 7; // 7 days
-        break;
-      case 'Monthly Plan':
-        subscriptionDuration = 30; // 30 days
-        break;
-    }
-
-    const subscriptionStartDate = new Date(startDate);
-    const subscriptionEndDate = new Date(subscriptionStartDate.getTime() + subscriptionDuration * 24 * 60 * 60 * 1000);
-
-    // Creating subscription
-    const subscription = new Subscription({
-      userId,
-      subscriptionStartDate,
-      subscriptionEndDate,
-      plan
-    });
-
-    const savedSubscription = await subscription.save();
-    res.status(201).json(savedSubscription);
-  } catch (error) {
-    console.error('Error creating subscription:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
-  }
-};
-
-const getSubscriptionDetails = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const subscription = await Subscription.findOne({ userId: userId });
-    if (!subscription) {
-      return res.json({ isSubscribed: false });
-    }
-    res.json({ isSubscribed: true, subscription });
-  } catch (error) {
-    console.error('Error getting subscription details:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
-  }
-};
-
-// Add meal Api
-const createMeal = async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'No token provided or token is malformed' });
-    }
-
-    const token = authHeader.split(' ')[1];
-    let decoded;
-    try {
-      decoded = jwt.verify(token, 'asdfghjkL007');
-    } catch (error) {
-      return res.status(401).json({ message: 'Invalid Token' });
-    }
-
-    const { userId, date, mealType, items } = req.body;
-    const user = await User.findById(decoded.sub);
-    if (!user || user.role !== 'admin') {
-      return res.status(403).json({ message: 'Only admin can create meals' });
-    }
-
-    if (!userId || !date || !mealType || !items || items.length === 0) {
-      return res.status(400).json({ message: 'Missing required fields' });
-    }
-
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
-    let existingMeal = await Meal.findOne({
-      userId,
-      date: { $gte: startOfDay, $lte: endOfDay }
-    });
-
-    if (existingMeal) {
-      existingMeal.mealType = mealType;
-      existingMeal.items = items;
-      const updatedMeal = await existingMeal.save();
-      res.status(200).json(updatedMeal);
-    } else {
-      const newMeal = new Meal({
-        userId,
-        date,
-        mealType,
-        items
-      });
-      const savedMeal = await newMeal.save();
-      res.status(201).json(savedMeal);
-    }
-  } catch (error) {
-    console.error('Error creating/updating meal:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
-  }
-};
-// Fetch Meal API
-
-const getMeal = async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'No token provided or token is malformed' });
-    }
-
-    const token = authHeader.split(' ')[1];
-    let decoded;
-    try {
-      decoded = jwt.verify(token, 'asdfghjkL007');
-    } catch (error) {
-      return res.status(401).json({ message: 'Invalid Token' });
-    }
-
-    const { date } = req.query;
-
-    if (!date) {
-      return res.status(400).json({ message: 'Date parameter is required' });
-    }
-
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
-    const meals = await Meal.find({
-      date: { $gte: startOfDay, $lte: endOfDay }
-    });
-
-    res.json(meals);
-  } catch (error) {
-    console.error('Error fetching meals:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
-  }
-};
-
-//  Remove Meal Api
-const removeMealItem = async (req, res) => {
-  try {
-    const { mealId, itemId } = req.params;
-    const meal = await Meal.findById(mealId);
-
-    if (!meal) {
-      return res.status(404).json({ message: 'Meal not found' });
-    }
-
-    meal.items = meal.items.filter(item => item._id.toString() !== itemId);
-
-    if (meal.items.length === 0) {
-      await Meal.findByIdAndDelete(mealId);
-    } else {
-      await meal.save();
-    }
-
-    res.json({ message: 'Item removed successfully' });
-  } catch (error) {
-    console.error('Error removing meal item:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
-  }
-};
-
-// upload Image api
-const updateOrCreateMealWithImage = async (req, res) => {
-  const { date, imageUrl, userId } = req.body;
-
-  if (!date || !imageUrl || !userId) {
-    return res.status(400).json({ message: 'Missing required fields: date, imageUrl, and userId are required.' });
-  }
-  try {
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
-    const update = {
-      $setOnInsert: { userId, date, mealType: 'Default', items: [] },
-      $set: { imageUrl: imageUrl }
-    };
-    const options = { upsert: true, new: true };
-    const meal = await Meal.findOneAndUpdate({ userId, date: { $gte: startOfDay, $lte: endOfDay } }, update, options);
-
-    res.json({ message: 'Meal image updated successfully', meal });
-  } catch (error) {
-    console.error('Error updating or creating meal image URL:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
-  }
-};
-
-const cancelMeal = async (req, res) => {
-  try {
-    const { userId, date, mealType } = req.body;
-
-    if (!userId || !date || !mealType) {
-      return res.status(400).json({ message: 'Missing required fields: userId, date, and mealType are required.' });
-    }
-
-    const cancellationDate = new Date(date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    if (cancellationDate <= today) {
-      return res.status(400).json({ message: 'Cannot cancel meals for today or past dates.' });
-    }
-
-    const newCancellation = new MealCancellation({
-      userId,
-      date: cancellationDate,
-      mealType
-    });
-
-    await newCancellation.save();
-
-    res.json({ message: 'Meal cancellation request submitted successfully' });
-  } catch (error) {
-    console.error('Error cancelling meal:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
-  }
-};
-
-const getCancelledMeals = async (req, res) => {
-  try {
-    const cancelledMeals = await MealCancellation.find()
-      .populate('userId', 'firstName lastName')
-      .lean();
-
-    if (cancelledMeals.length === 0) {
-      return res.status(404).json({ message: "No cancelled meals found." });
-    }
-
-    const formattedMeals = cancelledMeals.map(meal => ({
-      userId: meal.userId._id,
-      name: `${meal.userId.firstName} ${meal.userId.lastName}`,
-      date: meal.date,
-      mealType: meal.mealType
-    }));
-
-    res.json(formattedMeals);
-  } catch (error) {
-    res.status(500).json({ message: "Internal Server Error", error: error.message });
-  }
-};
-
-
 
 module.exports = {
   createUser,
@@ -497,14 +230,4 @@ module.exports = {
   forgotPassword,
   getUserByEmailAndPassword,
   logout,
-  createSubscription,
-  getSubscriptionDetails,
-  // requestPasswordReset,
-  // resetPassword,
-  createMeal,
-  getMeal,
-  removeMealItem,
-  updateOrCreateMealWithImage,
-  cancelMeal,
-  getCancelledMeals
 };
