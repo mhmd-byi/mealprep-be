@@ -4,7 +4,7 @@ const { sendEmail } = require('../utils/emailjs');
 const jwt = require('jsonwebtoken');
 const Token = require('../models/token');
 const bcrypt = require('bcrypt');
-require('dotenv').config()
+require('dotenv').config();
 
 const generateToken = (userId, expires, type) => {
   const payload = {

@@ -1,5 +1,7 @@
+const jwt = require('jsonwebtoken');
 const User = require('../models/userModel');
 const Meal = require('../models/mealModel');
+require('dotenv').config();
 
 // Add meal Api
 const createMeal = async (req, res) => {
@@ -68,26 +70,28 @@ const getMeal = async (req, res) => {
     const token = authHeader.split(' ')[1];
     let decoded;
     try {
-      decoded = jwt.verify(token, 'asdfghjkL007');
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
     } catch (error) {
       return res.status(401).json({ message: 'Invalid Token' });
     }
 
-    const { date } = req.query;
+    if (decoded) {
+      const { date } = req.query;
 
-    if (!date) {
-      return res.status(400).json({ message: 'Date parameter is required' });
+      if (!date) {
+        return res.status(400).json({ message: 'Date parameter is required' });
+      }
+
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      const meals = await Meal.find({
+        date: { $gte: startOfDay, $lte: endOfDay }
+      });
+
+      res.json(meals);
     }
-
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
-    const meals = await Meal.find({
-      date: { $gte: startOfDay, $lte: endOfDay }
-    });
-
-    res.json(meals);
   } catch (error) {
     console.error('Error fetching meals:', error);
     res.status(500).json({ message: 'Internal Server Error', error: error.message });
