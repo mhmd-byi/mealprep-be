@@ -1,6 +1,6 @@
 const User = require('../models/userModel');
 const Subscription = require('../models/subscriptionModel');
-const MealCancellation = require('../models/mealcancalation');
+const MealCancellation = require('../models/mealcancellation');
 
 const createSubscription = async (req, res) => {
   try {
