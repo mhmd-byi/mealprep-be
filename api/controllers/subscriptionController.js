@@ -100,24 +100,34 @@ const cancelMealRequest = async (req, res) => {
 
 const getCancelledMeals = async (req, res) => {
   try {
-    const cancelledMeals = await MealCancellation.find()
-      .populate('userId', 'firstName lastName')
-      .lean();
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({ message: 'Missing required fields: userId and date are required.' });
+    }
+
+    const cancelledMeals = await MealCancellation.find({ date: date }).exec();
+
 
     if (cancelledMeals.length === 0) {
       return res.status(404).json({ message: 'No cancelled meals found.' });
     }
 
-    const formattedMeals = cancelledMeals.map(meal => ({
+    const userFetchPromises = cancelledMeals.map(meal =>
+      User.findById(meal.userId).exec()
+    );
+    const users = await Promise.all(userFetchPromises);
+
+    const formattedMeals = cancelledMeals.map((meal, index) => ({
       userId: meal.userId._id,
-      name: `${meal.userId.firstName} ${meal.userId.lastName}`,
+      name: `${users[index].firstName} ${users[index].lastName}`,
       date: meal.date,
       mealType: meal.mealType
     }));
 
     res.json(formattedMeals);
   } catch (error) {
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    res.status(404).json({ message: error.message });
   }
 };
 
