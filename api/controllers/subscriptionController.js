@@ -22,19 +22,6 @@ const createSubscription = async (req, res) => {
       return res.status(400).json({ message: 'Invalid plan' });
     }
 
-    // Calculating subscription end date
-    switch (plan) {
-      case 'Trial Meal Pack':
-        meals = 4; // 4 meals -> 2 days
-        break;
-      case 'Weekly Plan':
-        meals = 14; // 14 meals -> 7 days
-        break;
-      case 'Monthly Plan':
-        meals = 60; // 60 meals -> 30 days
-        break;
-    }
-
     const subscriptionStartDate = new Date(startDate);
 
     // Creating subscription
