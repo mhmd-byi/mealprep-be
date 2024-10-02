@@ -135,7 +135,6 @@ const getAllUsers = function(req, res) {
 
 // Get User By ID API
 const getUserById = function(req, res) {
-  console.log('this is iser id', req.params);
   User.findById(req.params.userId, function(err, user) {
     if (err) {
       res.send(err);
@@ -188,7 +187,6 @@ const deleteUser = function(req, res) {
 // Forgot and Reset Password API
 const forgotPassword = async function(req, res) {
   const user = await User.findOne({ email: req.body.email });
-  console.log('this is user', user);
   if (user) {
     await sendEmail(user.email);
     res.send('email sent');
