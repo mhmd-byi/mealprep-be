@@ -25,7 +25,7 @@ const createSubscription = async (req, res) => {
     // Calculating subscription end date
     switch (plan) {
       case 'Trial Meal Pack':
-        meals = 6; // 6 meals -> 3 days
+        meals = 4; // 4 meals -> 2 days
         break;
       case 'Weekly Plan':
         meals = 14; // 14 meals -> 7 days
