@@ -1,6 +1,6 @@
 const cron = require('node-cron');
 const MealCancellation = require('../models/mealcancellation');
-const User = require('../models/userModel');
+const Subscription = require('../models/subscriptionModel');
 
 async function subtractMealBalance(mealType) {
   const now = new Date();
@@ -16,9 +16,9 @@ async function subtractMealBalance(mealType) {
   const userIdsToExclude = cancellationsToday.map(cancel => cancel.userId);
 
   // Subtract meal from users who haven't cancelled
-  await User.updateMany(
+  await Subscription.updateMany(
     { _id: { $nin: userIdsToExclude } },
-    { $inc: { mealBalance: -1 } } // Assume meal cost is 1 unit
+    { $inc: { meals: -1 } } // Assume meal cost is 1 unit
   );
 }
 
