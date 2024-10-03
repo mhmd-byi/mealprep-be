@@ -118,9 +118,46 @@ const getCancelledMeals = async (req, res) => {
   }
 };
 
+const getUserForMealDelivery = async (req, res) => {
+  try {
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({ message: 'Date is required.' });
+    }
+
+    const cancellationDate = new Date(date);
+    // Find all cancellations for the given date
+    const cancellations = await MealCancellation.find({
+      date: cancellationDate
+    }).exec();
+
+    // Get the user IDs from cancellations
+    const cancelledUserIds = cancellations.map(c => c.userId);
+
+    // Find all users who do not have a cancellation request for the given date
+    const users = await User.find({
+      _id: { $nin: cancelledUserIds } // $nin selects the documents where the value of _id is not in the cancelledUserIds array
+    }).exec();
+
+    const userDeliveries = users.map(user => ({
+      userId: user._id,
+      name: `${user.firstName} ${user.lastName}`,
+      email: user.email,
+      address: user.postalAddress
+    }));
+
+    res.json(userDeliveries);
+  } catch (error) {
+    console.error('Error fetching users for meal delivery:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
 module.exports = {
   createSubscription,
   getSubscriptionDetails,
   cancelMealRequest,
-  getCancelledMeals
+  getCancelledMeals,
+  getUserForMealDelivery,
 };

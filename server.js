@@ -2,9 +2,10 @@ const express = require('express');
 
 const app = express();
 const cors = require("cors");
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3001;
 require('dotenv').config()
 const mongoose = require('mongoose');
+require('./api/jobs/mealJobs');
 
 // eslint-disable-next-line no-unused-vars
 const Task = require('./api/models/todoListModel');

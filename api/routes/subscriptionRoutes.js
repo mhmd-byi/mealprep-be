@@ -2,7 +2,8 @@ const {
   cancelMealRequest,
   getCancelledMeals,
   getSubscriptionDetails,
-  createSubscription
+  createSubscription,
+  getUserForMealDelivery
 } = require('../controllers/subscriptionController');
 
 const subscriptionRoutes = function(app) {
@@ -12,6 +13,7 @@ const subscriptionRoutes = function(app) {
     .route('/subscription/:userId/subscription')
     .get(getSubscriptionDetails)
     .post(createSubscription);
+  app.route('/subscription/get-meal-delivery-details').get(getUserForMealDelivery);
 };
 
 module.exports = {
