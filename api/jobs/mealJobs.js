@@ -15,9 +15,12 @@ async function subtractMealBalance(mealType) {
   // Get user IDs to exclude
   const userIdsToExclude = cancellationsToday.map(cancel => cancel.userId);
 
-  // Subtract meal from users who haven't cancelled
+  // Subtract meal from users who haven't cancelled and have at least one meal left
   await Subscription.updateMany(
-    { _id: { $nin: userIdsToExclude } },
+    {
+      _id: { $nin: userIdsToExclude },
+      meals: { $gt: 0 } // Check that meals are greater than zero before decrementing
+    },
     { $inc: { meals: -1 } } // Assume meal cost is 1 unit
   );
 }
