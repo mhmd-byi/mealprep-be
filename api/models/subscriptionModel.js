@@ -17,7 +17,11 @@ const subscriptionSchema = new Schema(
       type: String,
       required: true
     },
-    meals: {
+    lunchMeals: {
+      type: Number,
+      required: true,
+    },
+    dinnerMeals: {
       type: Number,
       required: true,
     },

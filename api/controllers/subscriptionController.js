@@ -29,7 +29,8 @@ const createSubscription = async (req, res) => {
       userId,
       subscriptionStartDate,
       plan,
-      meals
+      lunchMeals: meals / 2,
+      dinnerMeals: meals / 2,
     });
 
     const savedSubscription = await subscription.save();
@@ -120,16 +121,21 @@ const getCancelledMeals = async (req, res) => {
 
 const getUserForMealDelivery = async (req, res) => {
   try {
-    const { date } = req.query;
+    const { date, mealType } = req.query;
 
     if (!date) {
       return res.status(400).json({ message: 'Date is required.' });
     }
 
+    if (!mealType) {
+      return res.status(400).json({ message: 'Meal type is required.' });
+    }
+
     const cancellationDate = new Date(date);
     // Find all cancellations for the given date
     const cancellations = await MealCancellation.find({
-      date: cancellationDate
+      date: cancellationDate,
+      mealType: mealType,
     }).exec();
 
     // Get the user IDs from cancellations

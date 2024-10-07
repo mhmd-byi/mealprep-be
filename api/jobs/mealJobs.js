@@ -15,13 +15,16 @@ async function subtractMealBalance(mealType) {
   // Get user IDs to exclude
   const userIdsToExclude = cancellationsToday.map(cancel => cancel.userId);
 
+  // Build a dynamic update object based on mealType
+  let updateField = `${mealType}Meals`; // Assumes the field names are 'lunchMeals' and 'dinnerMeals'
+
   // Subtract meal from users who haven't cancelled and have at least one meal left
   await Subscription.updateMany(
     {
       _id: { $nin: userIdsToExclude },
-      meals: { $gt: 0 } // Check that meals are greater than zero before decrementing
+      [updateField]: { $gt: 0 } // Use dynamic field for checking if meals are greater than zero
     },
-    { $inc: { meals: -1 } } // Assume meal cost is 1 unit
+    { $inc: { [updateField]: -1 } } // Dynamically decrement the appropriate meal field
   );
 }
 
