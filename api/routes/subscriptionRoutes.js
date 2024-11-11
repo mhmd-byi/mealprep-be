@@ -3,7 +3,9 @@ const {
   getCancelledMeals,
   getSubscriptionDetails,
   createSubscription,
-  getUserForMealDelivery
+  getUserForMealDelivery,
+  createRazorpayOrder,
+  verifyPayment
 } = require('../controllers/subscriptionController');
 
 const subscriptionRoutes = function(app) {
@@ -14,6 +16,8 @@ const subscriptionRoutes = function(app) {
     .get(getSubscriptionDetails)
     .post(createSubscription);
   app.route('/subscription/get-meal-delivery-details').get(getUserForMealDelivery);
+  app.route('/subscription/create-order').post(createRazorpayOrder);
+  app.route('/subscription/verify-payment').post(verifyPayment);
 };
 
 module.exports = {

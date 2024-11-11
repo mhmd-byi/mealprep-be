@@ -19,12 +19,14 @@ const subscriptionSchema = new Schema(
     },
     lunchMeals: {
       type: Number,
-      required: true,
+      required: true
     },
     dinnerMeals: {
       type: Number,
-      required: true,
+      required: true
     },
+    paymentId: { type: String },
+    orderId: { type: String }
   },
   {
     timestamps: true

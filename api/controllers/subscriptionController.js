@@ -1,6 +1,13 @@
 const User = require('../models/userModel');
 const Subscription = require('../models/subscriptionModel');
 const MealCancellation = require('../models/mealcancellation');
+const Razorpay = require('razorpay');
+const crypto = require('crypto');
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET
+});
 
 const createSubscription = async (req, res) => {
   try {
@@ -30,7 +37,7 @@ const createSubscription = async (req, res) => {
       subscriptionStartDate,
       plan,
       lunchMeals: meals / 2,
-      dinnerMeals: meals / 2,
+      dinnerMeals: meals / 2
     });
 
     const savedSubscription = await subscription.save();
@@ -96,14 +103,11 @@ const getCancelledMeals = async (req, res) => {
 
     const cancelledMeals = await MealCancellation.find({ date: date }).exec();
 
-
     if (cancelledMeals.length === 0) {
       return res.status(404).json({ message: 'No cancelled meals found.' });
     }
 
-    const userFetchPromises = cancelledMeals.map(meal =>
-      User.findById(meal.userId).exec()
-    );
+    const userFetchPromises = cancelledMeals.map(meal => User.findById(meal.userId).exec());
     const users = await Promise.all(userFetchPromises);
 
     const formattedMeals = cancelledMeals.map((meal, index) => ({
@@ -135,7 +139,7 @@ const getUserForMealDelivery = async (req, res) => {
     // Find all cancellations for the given date
     const cancellations = await MealCancellation.find({
       date: cancellationDate,
-      mealType: mealType,
+      mealType: mealType
     }).exec();
 
     // Get the user IDs from cancellations
@@ -160,10 +164,73 @@ const getUserForMealDelivery = async (req, res) => {
   }
 };
 
+const createRazorpayOrder = async (req, res) => {
+  try {
+    const { amount, plan, meals, userId } = req.body;
+
+    const options = {
+      amount: amount * 100, // Razorpay expects amount in paise
+      currency: 'INR',
+      receipt: `order_${Date.now()}`,
+      notes: {
+        userId: userId,
+        plan: plan,
+        meals: meals
+      }
+    };
+
+    const order = await razorpay.orders.create(options);
+
+    res.json({
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      keyId: process.env.RAZORPAY_KEY_ID
+    });
+  } catch (error) {
+    console.error('Error creating Razorpay order:', error);
+    res.status(500).json({ message: 'Error creating payment order' });
+  }
+};
+
+const verifyPayment = async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals } = req.body;
+
+    // Verify signature
+    const shasum = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
+    shasum.update(`${razorpay_order_id}|${razorpay_payment_id}`);
+    const digest = shasum.digest('hex');
+
+    if (digest !== razorpay_signature) {
+      return res.status(400).json({ message: 'Transaction not legit!' });
+    }
+
+    // Create subscription after payment verification
+    const subscription = new Subscription({
+      userId,
+      subscriptionStartDate: startDate,
+      plan,
+      lunchMeals: meals / 2,
+      dinnerMeals: meals / 2,
+      paymentId: razorpay_payment_id,
+      orderId: razorpay_order_id
+    });
+
+    const savedSubscription = await subscription.save();
+    res.status(201).json(savedSubscription);
+  } catch (error) {
+    console.error('Error verifying payment:', error);
+    res.status(500).json({ message: 'Error verifying payment' });
+  }
+};
+
 module.exports = {
   createSubscription,
   getSubscriptionDetails,
   cancelMealRequest,
   getCancelledMeals,
   getUserForMealDelivery,
+  createRazorpayOrder,
+  verifyPayment
 };
