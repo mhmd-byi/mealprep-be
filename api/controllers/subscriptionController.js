@@ -14,6 +14,7 @@ const createSubscription = async (req, res) => {
     const { userId, plan, startDate, meals } = req.body;
 
     if (!userId || !plan || !startDate || !meals) {
+      console.log('Error: Missing required fields');
       return res
         .status(400)
         .json({ message: 'Missing required fields: userId, plan, meals and startDate are required.' });
@@ -21,17 +22,18 @@ const createSubscription = async (req, res) => {
 
     const user = await User.findById(userId);
     if (!user) {
+      console.log('Error: User not found');
       return res.status(404).json({ message: 'User not found' });
     }
 
     const validPlans = ['Trial Meal Pack', 'Weekly Plan', 'Monthly Plan'];
     if (!validPlans.includes(plan)) {
+      console.log('Error: Invalid plan');
       return res.status(400).json({ message: 'Invalid plan' });
     }
 
     const subscriptionStartDate = new Date(startDate);
 
-    // Creating subscription
     const subscription = new Subscription({
       userId,
       subscriptionStartDate,
@@ -41,6 +43,7 @@ const createSubscription = async (req, res) => {
     });
 
     const savedSubscription = await subscription.save();
+    console.log('Success: Subscription created');
     res.status(201).json(savedSubscription);
   } catch (error) {
     console.error('Error creating subscription:', error);
@@ -53,8 +56,10 @@ const getSubscriptionDetails = async (req, res) => {
     const { userId } = req.params;
     const subscription = await Subscription.findOne({ userId: userId });
     if (!subscription) {
+      console.log('Success: No subscription found');
       return res.json({ isSubscribed: false });
     }
+    console.log('Success: Subscription details fetched');
     res.json({ isSubscribed: true, subscription });
   } catch (error) {
     console.error('Error getting subscription details:', error);
@@ -67,6 +72,7 @@ const cancelMealRequest = async (req, res) => {
     const { userId, date, mealType } = req.body;
 
     if (!userId || !date || !mealType) {
+      console.log('Error: Missing required fields');
       return res.status(400).json({ message: 'Missing required fields: userId, date, and mealType are required.' });
     }
 
@@ -75,6 +81,7 @@ const cancelMealRequest = async (req, res) => {
     today.setHours(0, 0, 0, 0);
 
     if (cancellationDate <= today) {
+      console.log('Error: Cannot cancel meals for today or past dates');
       return res.status(400).json({ message: 'Cannot cancel meals for today or past dates.' });
     }
 
@@ -85,7 +92,7 @@ const cancelMealRequest = async (req, res) => {
     });
 
     await newCancellation.save();
-
+    console.log('Success: Meal cancellation request submitted');
     res.json({ message: 'Meal cancellation request submitted successfully' });
   } catch (error) {
     console.error('Error cancelling meal:', error);
@@ -98,12 +105,14 @@ const getCancelledMeals = async (req, res) => {
     const { date } = req.query;
 
     if (!date) {
+      console.log('Error: Missing required fields');
       return res.status(400).json({ message: 'Missing required fields: userId and date are required.' });
     }
 
     const cancelledMeals = await MealCancellation.find({ date: date }).exec();
 
     if (cancelledMeals.length === 0) {
+      console.log('Success: No cancelled meals found');
       return res.status(404).json({ message: 'No cancelled meals found.' });
     }
 
@@ -117,8 +126,10 @@ const getCancelledMeals = async (req, res) => {
       mealType: meal.mealType
     }));
 
+    console.log('Success: Cancelled meals fetched');
     res.json(formattedMeals);
   } catch (error) {
+    console.error('Error fetching cancelled meals:', error);
     res.status(404).json({ message: error.message });
   }
 };
@@ -128,26 +139,24 @@ const getUserForMealDelivery = async (req, res) => {
     const { date, mealType } = req.query;
 
     if (!date) {
+      console.log('Error: Missing required fields');
       return res.status(400).json({ message: 'Date is required.' });
     }
 
     if (!mealType) {
+      console.log('Error: Missing required fields');
       return res.status(400).json({ message: 'Meal type is required.' });
     }
 
     const cancellationDate = new Date(date);
-    // Find all cancellations for the given date
     const cancellations = await MealCancellation.find({
       date: cancellationDate,
       mealType: mealType
     }).exec();
 
-    // Get the user IDs from cancellations
     const cancelledUserIds = cancellations.map(c => c.userId);
-
-    // Find all users who do not have a cancellation request for the given date
     const users = await User.find({
-      _id: { $nin: cancelledUserIds } // $nin selects the documents where the value of _id is not in the cancelledUserIds array
+      _id: { $nin: cancelledUserIds }
     }).exec();
 
     const userDeliveries = users.map(user => ({
@@ -157,6 +166,7 @@ const getUserForMealDelivery = async (req, res) => {
       address: user.postalAddress
     }));
 
+    console.log('Success: Users for meal delivery fetched');
     res.json(userDeliveries);
   } catch (error) {
     console.error('Error fetching users for meal delivery:', error);
@@ -169,7 +179,7 @@ const createRazorpayOrder = async (req, res) => {
     const { amount, plan, meals, userId } = req.body;
 
     const options = {
-      amount: amount * 100, // Razorpay expects amount in paise
+      amount: amount * 100,
       currency: 'INR',
       receipt: `order_${Date.now()}`,
       notes: {
@@ -180,7 +190,7 @@ const createRazorpayOrder = async (req, res) => {
     };
 
     const order = await razorpay.orders.create(options);
-
+    console.log('Success: Razorpay order created');
     res.json({
       orderId: order.id,
       amount: order.amount,
@@ -196,17 +206,15 @@ const createRazorpayOrder = async (req, res) => {
 const verifyPayment = async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals } = req.body;
-
-    // Verify signature
     const shasum = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
     shasum.update(`${razorpay_order_id}|${razorpay_payment_id}`);
     const digest = shasum.digest('hex');
 
     if (digest !== razorpay_signature) {
+      console.log('Error: Transaction not legit');
       return res.status(400).json({ message: 'Transaction not legit!' });
     }
 
-    // Create subscription after payment verification
     const subscription = new Subscription({
       userId,
       subscriptionStartDate: startDate,
@@ -218,6 +226,7 @@ const verifyPayment = async (req, res) => {
     });
 
     const savedSubscription = await subscription.save();
+    console.log('Success: Payment verified and subscription created');
     res.status(201).json(savedSubscription);
   } catch (error) {
     console.error('Error verifying payment:', error);
