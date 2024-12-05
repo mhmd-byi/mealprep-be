@@ -1,5 +1,6 @@
 const {
-    createMeal, getMeal, removeMealItem, updateOrCreateMealWithImage,
+    createMeal, getMeal, removeMealItem,
+    updateOrCreateMealWithImages,
 } = require('../controllers/mealController');
 
 const mealRoutes = function(app) {
@@ -9,7 +10,7 @@ const mealRoutes = function(app) {
 
   app.route('/meal/remove-meal-item/:mealId/:itemId').delete(removeMealItem);
 
-  app.route('/meal/update-meal-image').patch(updateOrCreateMealWithImage);
+  app.route('/meal/update-meal-images').patch(updateOrCreateMealWithImages);
 };
 
 module.exports = {

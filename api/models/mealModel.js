@@ -1,4 +1,3 @@
-// models/mealModel.js
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
@@ -9,7 +8,6 @@ const mealItemSchema = new Schema({
   description: { type: String }
 });
 
-// models/mealModel.js
 const mealSchema = new Schema(
   {
     userId: {
@@ -27,7 +25,7 @@ const mealSchema = new Schema(
       enum: ['lunch', 'dinner']
     },
     items: [mealItemSchema],
-    imageUrl: { type: String }
+    imageUrls: [{ type: String }]
   },
   {
     timestamps: true

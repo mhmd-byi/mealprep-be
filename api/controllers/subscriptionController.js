@@ -69,25 +69,27 @@ const getSubscriptionDetails = async (req, res) => {
 
 const cancelMealRequest = async (req, res) => {
   try {
-    const { userId, date, mealType } = req.body;
+    const { userId, startDate, endDate, mealType } = req.body;
 
-    if (!userId || !date || !mealType) {
+    if (!userId || !startDate || !endDate || !mealType) {
       console.log('Error: Missing required fields');
-      return res.status(400).json({ message: 'Missing required fields: userId, date, and mealType are required.' });
+      return res.status(400).json({ message: 'Missing required fields: userId, startDate, endDate, and mealType are required.' });
     }
 
-    const cancellationDate = new Date(date);
+    const start = new Date(startDate);
+    const end = new Date(endDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    if (cancellationDate <= today) {
-      console.log('Error: Cannot cancel meals for today or past dates');
-      return res.status(400).json({ message: 'Cannot cancel meals for today or past dates.' });
+    if (start <= today || end < start) {
+      console.log('Error: Invalid date range');
+      return res.status(400).json({ message: 'Invalid date range. Start date must be in the future and end date must be after start date.' });
     }
 
     const newCancellation = new MealCancellation({
       userId,
-      date: cancellationDate,
+      startDate: start,
+      endDate: end,
       mealType
     });
 
@@ -106,10 +108,15 @@ const getCancelledMeals = async (req, res) => {
 
     if (!date) {
       console.log('Error: Missing required fields');
-      return res.status(400).json({ message: 'Missing required fields: userId and date are required.' });
+      return res.status(400).json({ message: 'Missing required date.' });
     }
 
-    const cancelledMeals = await MealCancellation.find({ date: date }).exec();
+    const queryDate = new Date(date);
+
+    const cancelledMeals = await MealCancellation.find({
+      startDate: { $lte: queryDate },
+      endDate: { $gte: queryDate }
+    }).exec();
 
     if (cancelledMeals.length === 0) {
       console.log('Success: No cancelled meals found');
@@ -122,7 +129,8 @@ const getCancelledMeals = async (req, res) => {
     const formattedMeals = cancelledMeals.map((meal, index) => ({
       userId: meal.userId._id,
       name: `${users[index].firstName} ${users[index].lastName}`,
-      date: meal.date,
+      startDate: meal.startDate,
+      endDate: meal.endDate,
       mealType: meal.mealType
     }));
 

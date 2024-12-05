@@ -124,27 +124,28 @@ const removeMealItem = async (req, res) => {
 };
 
 // upload Image api
-const updateOrCreateMealWithImage = async (req, res) => {
-  const { date, imageUrl, userId } = req.body;
+const updateOrCreateMealWithImages = async (req, res) => {
+  const { date, imageUrls, userId } = req.body;
 
-  if (!date || !imageUrl || !userId) {
-    return res.status(400).json({ message: 'Missing required fields: date, imageUrl, and userId are required.' });
+  if (!date || !imageUrls || !userId || imageUrls.length === 0) {
+    return res.status(400).json({ message: 'Missing required fields: date, imageUrls, and userId are required.' });
   }
   try {
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
+    
     const update = {
       $setOnInsert: { userId, date, mealType: 'Default', items: [] },
-      $set: { imageUrl: imageUrl }
+      $addToSet: { imageUrls: { $each: imageUrls } } // Adds unique URLs
     };
     const options = { upsert: true, new: true };
     const meal = await Meal.findOneAndUpdate({ userId, date: { $gte: startOfDay, $lte: endOfDay } }, update, options);
 
-    res.json({ message: 'Meal image updated successfully', meal });
+    res.json({ message: 'Meal images updated successfully', meal });
   } catch (error) {
-    console.error('Error updating or creating meal image URL:', error);
+    console.error('Error updating or creating meal image URLs:', error);
     res.status(500).json({ message: 'Internal Server Error', error: error.message });
   }
 };
@@ -153,5 +154,5 @@ module.exports = {
   createMeal,
   getMeal,
   removeMealItem,
-  updateOrCreateMealWithImage
+  updateOrCreateMealWithImages
 };

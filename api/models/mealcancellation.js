@@ -7,13 +7,17 @@ const mealCancellationSchema = new Schema({
     ref: 'User',
     required: true
   },
-  date: {
+  startDate: {
+    type: Date,
+    required: true
+  },
+  endDate: {
     type: Date,
     required: true
   },
   mealType: {
     type: String,
-    enum: ['lunch', 'dinner'],
+    enum: ['lunch', 'dinner', 'both'],
     required: true
   },
   createdAt: {
