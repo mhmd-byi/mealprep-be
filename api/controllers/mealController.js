@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/userModel');
 const Meal = require('../models/mealModel');
+const CustomiseMeal = require('../models/customiseMealModel');
 require('dotenv').config();
 
 // Add meal Api
@@ -98,6 +99,43 @@ const getMeal = async (req, res) => {
   }
 };
 
+// Customise request meal api
+const customizeMealRequest = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'No token provided or token is malformed' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (error) {
+      return res.status(401).json({ message: 'Invalid Token' });
+    }
+
+    if (decoded) {
+      const { userId, date, items } = req.body;
+      console.log('this is req body full', req.body)
+      const itemsArray = Object.keys(items).map(key => ({
+        name: items[key].name,
+        weight: items[key].weight
+      }));
+      const customisationRequest = new CustomiseMeal({
+        userId,
+        date,
+        items: itemsArray
+      });
+      const savedCustomisationMealRequest = await customisationRequest.save();
+      res.status(201).json(savedCustomisationMealRequest);
+    }
+  } catch (e) {
+    console.error('Error creating meal customisation request:', e);
+    res.status(500).json({ message: 'Error creating meal customisation request', error: e.message });
+  }
+};
+
 //  Remove Meal Api
 const removeMealItem = async (req, res) => {
   try {
@@ -135,7 +173,7 @@ const updateOrCreateMealWithImages = async (req, res) => {
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
-    
+
     const update = {
       $setOnInsert: { userId, date, mealType: 'Default', items: [] },
       $addToSet: { imageUrls: { $each: imageUrls } } // Adds unique URLs
@@ -154,5 +192,6 @@ module.exports = {
   createMeal,
   getMeal,
   removeMealItem,
-  updateOrCreateMealWithImages
+  updateOrCreateMealWithImages,
+  customizeMealRequest
 };
