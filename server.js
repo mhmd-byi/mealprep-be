@@ -17,6 +17,16 @@ const userRoutes = require('./api/routes/userRoutes');
 const mealRoutes = require('./api/routes/mealRoutes');
 const subscriptionRoutes = require('./api/routes/subscriptionRoutes');
 
+const corsOptions = {
+  origin: '*', // Adjust this to match the domain you want to allow
+  methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 // mongoose instance connection url connection
 mongoose.Promise = global.Promise;
 mongoose
@@ -32,8 +42,6 @@ mongoose
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
-app.use(cors());
-app.options('*', cors());
 
 app.get('/', (req, res) => {
   res.send('Hello');
