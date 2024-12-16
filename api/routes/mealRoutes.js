@@ -2,6 +2,7 @@ const {
     createMeal, getMeal, removeMealItem,
     updateOrCreateMealWithImages,
     customizeMealRequest,
+    getCustomisedMealRequests,
 } = require('../controllers/mealController');
 
 const mealRoutes = function(app) {
@@ -14,6 +15,8 @@ const mealRoutes = function(app) {
   app.route('/meal/update-meal-images').patch(updateOrCreateMealWithImages);
 
   app.route('/meal/customise-meal-request').put(customizeMealRequest);
+
+  app.route('/meal/get-customisation-requests').get(getCustomisedMealRequests);
 };
 
 module.exports = {

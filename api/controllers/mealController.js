@@ -136,6 +136,55 @@ const customizeMealRequest = async (req, res) => {
   }
 };
 
+const getCustomisedMealRequests = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'No token provided or token is malformed' });
+    }
+    const token = authHeader.split(' ')[1];
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (error) {
+      return res.status(401).json({ message: 'Invalid Token' });
+    }
+
+    if (decoded) {
+      const { date } = req.query;
+      if (!date) {
+        return res.status(400).json({ message: 'Date parameter is required' });
+      }
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      // Fetch meals within the given date range
+      const meals = await CustomiseMeal.find({
+        date: { $gte: startOfDay, $lte: endOfDay }
+      });
+
+      // Extract user IDs from the meals
+      const userIds = meals.map(meal => meal.userId);
+
+      // Fetch user details based on the extracted user IDs
+      const users = await User.find({ _id: { $in: userIds }});
+
+      // Map the user details back onto the meal data
+      const mealsWithUserDetails = meals.map(meal => ({
+        ...meal.toObject(),
+        user: users.find(user => user._id.toString() === meal.userId.toString())
+      }));
+
+      res.json(mealsWithUserDetails);
+    }
+  } catch (e) {
+    console.error('Error fetching meals:', e);
+    res.status(500).json({ message: 'Internal Server Error', error: e.message });
+  }
+};
+
 //  Remove Meal Api
 const removeMealItem = async (req, res) => {
   try {
@@ -193,5 +242,6 @@ module.exports = {
   getMeal,
   removeMealItem,
   updateOrCreateMealWithImages,
-  customizeMealRequest
+  customizeMealRequest,
+  getCustomisedMealRequests,
 };
