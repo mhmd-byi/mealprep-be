@@ -151,9 +151,8 @@ const getUserForMealDelivery = async (req, res) => {
       return res.status(400).json({ message: 'Date is required.' });
     }
 
-    if (!mealType) {
-      console.log('Error: Missing required fields');
-      return res.status(400).json({ message: 'Meal type is required.' });
+    if (!mealType || (mealType !== 'lunch' && mealType !== 'dinner')) {
+      return res.status(400).json({ message: 'Valid meal type is required (lunch or dinner).' });
     }
 
     const cancellationDate = new Date(date);
@@ -163,24 +162,33 @@ const getUserForMealDelivery = async (req, res) => {
     }).exec();
 
     const cancelledUserIds = cancellations.map(c => c.userId);
-    const users = await User.find({
-      _id: { $nin: cancelledUserIds }
-    }).exec();
+    
 
-    const userDeliveries = users.map(user => ({
-      userId: user._id,
-      name: `${user.firstName} ${user.lastName}`,
-      email: user.email,
-      address: user.postalAddress
+    const mealKey = mealType + 'Meals';
+    const query = {
+      _id: { $nin: cancelledUserIds },
+      [mealKey]: { $gt: 0 }
+    };
+
+    const usersWithMeals = await Subscription.find(query)
+      .populate('userId', 'firstName lastName email mobile postalAddress')
+      .exec();
+
+    const userDeliveries = usersWithMeals.map(subscription => ({
+      userId: subscription.userId._id,
+      name: `${subscription.userId.firstName} ${subscription.userId.lastName}`,
+      email: subscription.userId.email,
+      address: subscription.userId.postalAddress,
+      mobile: subscription.userId.mobile
     }));
 
-    console.log('Success: Users for meal delivery fetched');
     res.json(userDeliveries);
   } catch (error) {
     console.error('Error fetching users for meal delivery:', error);
     res.status(500).json({ message: 'Internal Server Error', error: error.message });
   }
 };
+
 
 const createRazorpayOrder = async (req, res) => {
   try {
