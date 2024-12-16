@@ -1,5 +1,6 @@
 const moment = require('moment');
 const User = require('../models/userModel');
+const Subscription = require('../models/subscriptionModel');
 const { sendEmail } = require('../utils/emailjs');
 const jwt = require('jsonwebtoken');
 const Token = require('../models/token');
@@ -123,14 +124,40 @@ const getUserByEmailAndPassword = async (req, res) => {
 };
 
 // Get All Users API
-const getAllUsers = function(req, res) {
-  User.find({}, function(err, users) {
-    if (err) {
-      res.status(500).send(err);
-    } else {
-      res.json(users);
-    }
-  });
+const getAllUsers = async (req, res) => {
+  console.log('here')
+  try {
+    const response = await User.find({});
+    res.status(200).json({
+      users: response
+    });
+  } catch (e) {
+    res.status(401).json({ message: 'Error fetching users' });
+  }
+};
+
+const getAllUsersWithMealCounts = async (req, res) => {
+  try {
+    const users = await User.find().lean();
+    const userMealCounts = await Promise.all(users.map(async (user) => {
+      const subscriptions = await Subscription.find({ userId: user._id }).exec();
+      const mealCounts = subscriptions.reduce((acc, curr) => {
+        acc.lunchMeals += curr.lunchMeals;
+        acc.dinnerMeals += curr.dinnerMeals;
+        return acc;
+      }, { lunchMeals: 0, dinnerMeals: 0 });
+
+      return {
+        ...user,
+        mealCounts
+      };
+    }));
+
+    res.json(userMealCounts);
+  } catch (e) {
+    console.error('Error fetching users with meal counts:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
 };
 
 // Get User By ID API
@@ -228,4 +255,5 @@ module.exports = {
   forgotPassword,
   getUserByEmailAndPassword,
   logout,
+  getAllUsersWithMealCounts,
 };
