@@ -34,7 +34,7 @@ cron.schedule('0 9 * * *', () => {
   console.log('Subtracted lunch balances at 9 AM');
 });
 
-cron.schedule('0 16 * * *', () => {
+cron.schedule('45 16 * * *', () => {
   subtractMealBalance('dinner');
   console.log('Subtracted dinner balances at 4 PM');
 });
