@@ -25,6 +25,14 @@ const subscriptionSchema = new Schema(
       type: Number,
       required: true
     },
+    mealType: {
+      type: String,
+      required: true
+    },
+    carbType: {
+      type: String,
+      required: true
+    },
     paymentId: { type: String },
     orderId: { type: String }
   },

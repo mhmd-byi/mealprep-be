@@ -55,11 +55,13 @@ const getSubscriptionDetails = async (req, res) => {
   try {
     const { userId } = req.params;
     const subscription = await Subscription.findOne({ userId: userId });
+    
     if (!subscription) {
-      console.log('Success: No subscription found');
       return res.json({ isSubscribed: false });
     }
-    console.log('Success: Subscription details fetched');
+    if (subscription && subscription.meals <= 0) {
+      return res.json({ isSubscribed: false });
+    }
     res.json({ isSubscribed: true, subscription });
   } catch (error) {
     console.error('Error getting subscription details:', error);
@@ -179,7 +181,9 @@ const getUserForMealDelivery = async (req, res) => {
       name: `${subscription.userId.firstName} ${subscription.userId.lastName}`,
       email: subscription.userId.email,
       address: subscription.userId.postalAddress,
-      mobile: subscription.userId.mobile
+      mobile: subscription.userId.mobile,
+      mealType: subscription.mealType || '',
+      carbType: subscription.carbType || '',
     }));
 
     res.json(userDeliveries);
@@ -192,7 +196,7 @@ const getUserForMealDelivery = async (req, res) => {
 
 const createRazorpayOrder = async (req, res) => {
   try {
-    const { amount, plan, meals, userId } = req.body;
+    const { amount, plan, meals, userId, carbType, mealType } = req.body;
 
     const options = {
       amount: amount * 100,
@@ -201,7 +205,9 @@ const createRazorpayOrder = async (req, res) => {
       notes: {
         userId: userId,
         plan: plan,
-        meals: meals
+        meals: meals,
+        carbType: carbType,
+        mealType: mealType
       }
     };
 
@@ -221,7 +227,7 @@ const createRazorpayOrder = async (req, res) => {
 
 const verifyPayment = async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals, mealType, carbType } = req.body;
     const shasum = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
     shasum.update(`${razorpay_order_id}|${razorpay_payment_id}`);
     const digest = shasum.digest('hex');
@@ -237,12 +243,13 @@ const verifyPayment = async (req, res) => {
       plan,
       lunchMeals: meals / 2,
       dinnerMeals: meals / 2,
+      mealType: mealType,
+      carbType: carbType,
       paymentId: razorpay_payment_id,
       orderId: razorpay_order_id
     });
 
     const savedSubscription = await subscription.save();
-    console.log('Success: Payment verified and subscription created');
     res.status(201).json(savedSubscription);
   } catch (error) {
     console.error('Error verifying payment:', error);
