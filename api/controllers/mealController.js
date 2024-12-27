@@ -36,7 +36,8 @@ const createMeal = async (req, res) => {
     endOfDay.setHours(23, 59, 59, 999);
     let existingMeal = await Meal.findOne({
       userId,
-      date: { $gte: startOfDay, $lte: endOfDay }
+      date: { $gte: startOfDay, $lte: endOfDay },
+      mealType: mealType,
     });
 
     if (existingMeal) {
@@ -77,7 +78,7 @@ const getMeal = async (req, res) => {
     }
 
     if (decoded) {
-      const { date } = req.query;
+      const { date, mealType } = req.query;
 
       if (!date) {
         return res.status(400).json({ message: 'Date parameter is required' });
@@ -88,7 +89,8 @@ const getMeal = async (req, res) => {
       const endOfDay = new Date(date);
       endOfDay.setHours(23, 59, 59, 999);
       const meals = await Meal.find({
-        date: { $gte: startOfDay, $lte: endOfDay }
+        date: { $gte: startOfDay, $lte: endOfDay },
+        mealType: mealType,
       });
 
       res.json(meals);
