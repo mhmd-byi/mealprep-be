@@ -239,6 +239,86 @@ const updateOrCreateMealWithImages = async (req, res) => {
   }
 };
 
+// get menu image api
+const fetchMenuImages = async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) {
+      return res.status(400).json({ message: 'Date parameter is required' });
+    }
+
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const meals = await Meal.find({
+      date: { $gte: startOfDay, $lte: endOfDay }
+    });
+
+    const imageUrls = meals.reduce((acc, meal) => {
+      const imagesWithSrc = meal.imageUrls.map(imageUrl => ({ src: imageUrl }));
+      acc.push(...imagesWithSrc);
+      return acc;
+    }, []);
+
+    res.json({ imageUrls });
+  } catch (error) {
+    console.error('Error fetching menu images:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
+const deleteAnImage = async (req, res) => {
+  try {
+    const { url, date } = req.body;
+    console.log('this is url', url)
+
+    if (!date) {
+      return res.status(400).json({ message: 'Date parameter is required' });
+    }
+
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const mealForDeleteImage = await Meal.find({
+      date: { $gte: startOfDay, $lte: endOfDay },
+      imageUrls: { $gte: 1 },
+    });
+    if (!mealForDeleteImage) {
+      return res.status(404).json({ message: 'No meal found for the specified date' });
+    }
+    const updatedImageUrls = mealForDeleteImage?.[0]?.imageUrls?.filter(image => image !== url);
+    if (updatedImageUrls?.length === mealForDeleteImage?.[0]?.imageUrls?.length) {
+      return res.status(404).json({ message: 'Image URL not found in the meal data' });
+    }
+
+    const result = await Meal.updateOne(
+      { _id: mealForDeleteImage[0]._id },
+      { $set: { imageUrls: updatedImageUrls } }
+    );
+
+    // Check if the document was actually updated
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: 'No matching document found to update' });
+    }
+
+    if (result.modifiedCount === 0) {
+      return res.status(406).json({ message: 'Document not modified' });
+    }
+
+    res.json({
+      message: 'Image URL removed successfully',
+      updatedImageUrls: updatedImageUrls
+    });
+  } catch (e) {
+    console.error('Error deleting image URL:', e);
+    res.status(500).json({ message: 'Internal Server Error', error: e.message });
+  }
+};
+
 module.exports = {
   createMeal,
   getMeal,
@@ -246,4 +326,6 @@ module.exports = {
   updateOrCreateMealWithImages,
   customizeMealRequest,
   getCustomisedMealRequests,
+  fetchMenuImages,
+  deleteAnImage,
 };

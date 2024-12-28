@@ -3,6 +3,8 @@ const {
     updateOrCreateMealWithImages,
     customizeMealRequest,
     getCustomisedMealRequests,
+    fetchMenuImages,
+    deleteAnImage,
 } = require('../controllers/mealController');
 
 const mealRoutes = function(app) {
@@ -12,7 +14,11 @@ const mealRoutes = function(app) {
 
   app.route('/meal/remove-meal-item/:mealId/:itemId').delete(removeMealItem);
 
-  app.route('/meal/update-meal-images').patch(updateOrCreateMealWithImages);
+  app.route('/meal/update-meal-images').put(updateOrCreateMealWithImages);
+
+  app.route('/meal/fetch-menu-images').get(fetchMenuImages);
+
+  app.route('/meal/delete-menu-images').delete(deleteAnImage);
 
   app.route('/meal/customise-meal-request').put(customizeMealRequest);
 
