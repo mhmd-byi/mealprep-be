@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/userModel');
 const Meal = require('../models/mealModel');
 const CustomiseMeal = require('../models/customiseMealModel');
+const Activity = require('../models/activityModel');
 require('dotenv').config();
 
 // Add meal Api
@@ -119,7 +120,6 @@ const customizeMealRequest = async (req, res) => {
 
     if (decoded) {
       const { userId, date, items } = req.body;
-      console.log('this is req body full', req.body)
       const itemsArray = Object.keys(items).map(key => ({
         name: items[key].name,
         weight: items[key].weight
@@ -129,6 +129,12 @@ const customizeMealRequest = async (req, res) => {
         date,
         items: itemsArray
       });
+      const activityData = new Activity({
+        userId,
+        date,
+        description: 'Requested for meal cstomisation'
+      });
+      await activityData.save();
       const savedCustomisationMealRequest = await customisationRequest.save();
       res.status(201).json(savedCustomisationMealRequest);
     }
