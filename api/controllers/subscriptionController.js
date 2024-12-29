@@ -104,7 +104,6 @@ const cancelMealRequest = async (req, res) => {
 
     await activityData.save();
     await newCancellation.save();
-    console.log('Success: Meal cancellation request submitted');
     res.json({ message: 'Meal cancellation request submitted successfully' });
   } catch (error) {
     console.error('Error cancelling meal:', error);
