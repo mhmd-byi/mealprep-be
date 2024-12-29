@@ -1,6 +1,7 @@
 const User = require('../models/userModel');
 const Subscription = require('../models/subscriptionModel');
 const MealCancellation = require('../models/mealcancellation');
+const Activity = require('../models/activityModel');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 
@@ -95,6 +96,13 @@ const cancelMealRequest = async (req, res) => {
       mealType
     });
 
+    const activityData = new Activity({
+      userId,
+      date: new Date(),
+      description: `Meal cancellation request for ${mealType} meal from ${start.toDateString()} to ${end.toDateString()}`
+    });
+
+    await activityData.save();
     await newCancellation.save();
     console.log('Success: Meal cancellation request submitted');
     res.json({ message: 'Meal cancellation request submitted successfully' });
