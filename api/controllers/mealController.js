@@ -131,8 +131,8 @@ const customizeMealRequest = async (req, res) => {
       });
       const activityData = new Activity({
         userId,
-        date,
-        description: 'Requested for meal cstomisation'
+        date: new Date(),
+        description: 'Requested for meal cstomisation for date ' + date
       });
       await activityData.save();
       const savedCustomisationMealRequest = await customisationRequest.save();
