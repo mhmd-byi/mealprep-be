@@ -149,7 +149,8 @@ const getAllUsersWithMealCounts = async (req, res) => {
 
       return {
         ...user,
-        mealCounts
+        mealCounts,
+        subscriptions,
       };
     }));
 
