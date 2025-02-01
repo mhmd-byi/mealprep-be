@@ -203,7 +203,7 @@ const getUserForMealDelivery = async (req, res) => {
 
 const createRazorpayOrder = async (req, res) => {
   try {
-    const { amount, plan, meals, userId, carbType, mealType } = req.body;
+    const { amount, plan, meals, userId, carbType, mealType, lunchDinner } = req.body;
 
     const options = {
       amount: amount * 100,
@@ -214,7 +214,8 @@ const createRazorpayOrder = async (req, res) => {
         plan: plan,
         meals: meals,
         carbType: carbType,
-        mealType: mealType
+        mealType: mealType,
+        lunchDinner: lunchDinner,
       }
     };
 
@@ -234,7 +235,7 @@ const createRazorpayOrder = async (req, res) => {
 
 const verifyPayment = async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals, mealType, carbType } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals, mealType, carbType, lunchDinner } = req.body;
     const shasum = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
     shasum.update(`${razorpay_order_id}|${razorpay_payment_id}`);
     const digest = shasum.digest('hex');
@@ -243,13 +244,24 @@ const verifyPayment = async (req, res) => {
       console.log('Error: Transaction not legit');
       return res.status(400).json({ message: 'Transaction not legit!' });
     }
+    let lunchMeals = 0;
+    let dinnerMeals = 0;
+
+    if (lunchDinner === 'lunch') {
+      lunchMeals = meals;
+    } else if (lunchDinner === 'dinner') {
+      dinnerMeals = meals
+    } else {
+      lunchMeals = meals / 2;
+      dinnerMeals = meals / 2;
+    }
 
     const subscription = new Subscription({
       userId,
       subscriptionStartDate: startDate,
       plan,
-      lunchMeals: meals / 2,
-      dinnerMeals: meals / 2,
+      lunchMeals: lunchMeals,
+      dinnerMeals: dinnerMeals,
       mealType: mealType,
       carbType: carbType,
       paymentId: razorpay_payment_id,
