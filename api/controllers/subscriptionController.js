@@ -76,34 +76,98 @@ const cancelMealRequest = async (req, res) => {
 
     if (!userId || !startDate || !endDate || !mealType) {
       console.log('Error: Missing required fields');
-      return res.status(400).json({ message: 'Missing required fields: userId, startDate, endDate, and mealType are required.' });
+      return res.status(400).json({ 
+        message: 'Missing required fields: userId, startDate, endDate, and mealType are required.' 
+      });
     }
 
+    // Create dates in IST
     const start = new Date(startDate);
     const end = new Date(endDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    
+    // Get current date and time in IST
+    const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const todayIST = new Date(nowIST);
+    todayIST.setHours(0, 0, 0, 0);
 
-    if (start <= today || end < start) {
-      console.log('Error: Invalid date range');
-      return res.status(400).json({ message: 'Invalid date range. Start date must be in the future and end date must be after start date.' });
+    // Convert current time to minutes (IST)
+    const currentHour = nowIST.getHours();
+    const currentMinutes = nowIST.getMinutes();
+    const currentTimeInMinutes = currentHour * 60 + currentMinutes;
+
+    // Format start date to compare with today
+    const startDate0Hour = new Date(start);
+    startDate0Hour.setHours(0, 0, 0, 0);
+
+    // Check if the start date is today
+    const isStartDateToday = startDate0Hour.getTime() === todayIST.getTime();
+    
+    // If it's a future date, allow the cancellation
+    if (startDate0Hour > todayIST) {
+      // Process normally for future dates
+    } 
+    // If it's today, apply time restrictions
+    else if (isStartDateToday) {
+      if (mealType === 'both') {
+        const errors = [];
+        
+        // Check lunch restriction (after 11 AM)
+        if (currentTimeInMinutes > 11 * 60) {
+          errors.push('Lunch cancellation for today must be done before 11:00 AM');
+        }
+        
+        // Check dinner restriction (after 4:30 PM)
+        if (currentTimeInMinutes > 16 * 60 + 30) {
+          errors.push('Dinner cancellation for today must be done before 4:30 PM');
+        }
+
+        if (errors.length > 0) {
+          return res.status(400).json({ 
+            message: 'Time restriction errors',
+            errors: errors
+          });
+        }
+      } 
+      else if (mealType === 'lunch' && currentTimeInMinutes > 11 * 60) {
+        return res.status(400).json({ 
+          message: 'Lunch cancellation for today must be done before 11:00 AM' 
+        });
+      }
+      else if (mealType === 'dinner' && currentTimeInMinutes > 16 * 60 + 30) {
+        return res.status(400).json({ 
+          message: 'Dinner cancellation for today must be done before 4:30 PM' 
+        });
+      }
+    }
+    // If it's a past date, reject the cancellation
+    else {
+      return res.status(400).json({ 
+        message: 'Cannot cancel meals for past dates' 
+      });
     }
 
-    const newCancellation = new MealCancellation({
-      userId,
-      startDate: start,
-      endDate: end,
-      mealType
-    });
+    if (end < start) {
+      console.log('Error: Invalid date range');
+      return res.status(400).json({ 
+        message: 'Invalid date range. End date must be after start date.' 
+      });
+    }
 
-    const activityData = new Activity({
-      userId,
-      date: new Date(),
-      description: `Meal cancellation request for ${mealType} meal from ${start.toDateString()} to ${end.toDateString()}`
-    });
+    // const newCancellation = new MealCancellation({
+    //   userId,
+    //   startDate: start,
+    //   endDate: end,
+    //   mealType
+    // });
 
-    await activityData.save();
-    await newCancellation.save();
+    // const activityData = new Activity({
+    //   userId,
+    //   date: new Date(),
+    //   description: `Meal cancellation request for ${mealType} meal from ${start.toDateString()} to ${end.toDateString()}`
+    // });
+
+    // await activityData.save();
+    // await newCancellation.save();
     res.json({ message: 'Meal cancellation request submitted successfully' });
   } catch (error) {
     console.error('Error cancelling meal:', error);
