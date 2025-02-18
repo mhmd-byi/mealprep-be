@@ -153,21 +153,21 @@ const cancelMealRequest = async (req, res) => {
       });
     }
 
-    // const newCancellation = new MealCancellation({
-    //   userId,
-    //   startDate: start,
-    //   endDate: end,
-    //   mealType
-    // });
+    const newCancellation = new MealCancellation({
+      userId,
+      startDate: start,
+      endDate: end,
+      mealType
+    });
 
-    // const activityData = new Activity({
-    //   userId,
-    //   date: new Date(),
-    //   description: `Meal cancellation request for ${mealType} meal from ${start.toDateString()} to ${end.toDateString()}`
-    // });
+    const activityData = new Activity({
+      userId,
+      date: new Date(),
+      description: `Meal cancellation request for ${mealType} meal from ${start.toDateString()} to ${end.toDateString()}`
+    });
 
-    // await activityData.save();
-    // await newCancellation.save();
+    await activityData.save();
+    await newCancellation.save();
     res.json({ message: 'Meal cancellation request submitted successfully' });
   } catch (error) {
     console.error('Error cancelling meal:', error);
