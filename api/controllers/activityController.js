@@ -1,5 +1,6 @@
 const User = require('../models/userModel');
 const Activity = require('../models/activityModel');
+const { default: axios } = require('axios');
 
 const createActivity = async (req, res) => {
   try {
@@ -45,7 +46,7 @@ const getActivityFromUserId = async (req, res) => {
 
 const sendEmailMailTrap = async (req, res) => {
   try {
-    const { to, subject, text } = req.body;
+    const { toEmail, toName, subject, text } = req.body;
     
     const options = {
       method: "POST",
@@ -56,7 +57,7 @@ const sendEmailMailTrap = async (req, res) => {
         "Api-Token": process.env.MAILTRAP_API_TOKEN,
       },
       data: {
-        to: [to],
+        to: [{ email: toEmail, name: toName }],
         from: { email: 'info@mealprep.co.in', name: 'Mealprep Info' },
         headers: {'X-Message-Source': 'app.mealprep.co.in'},
         subject: subject,
