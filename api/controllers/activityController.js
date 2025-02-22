@@ -51,7 +51,7 @@ const sendEmailMailTrap = async (req, res) => {
   const client = new MailtrapClient({ token: process.env.MAILTRAP_API_TOKEN });
   const sender = {
     email: "hello@app.mealprep.co.in",
-    name: "Mailtrap Test",
+    name: "Mealprep",
   };
   client
     .send({
