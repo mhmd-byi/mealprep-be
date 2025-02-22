@@ -1,6 +1,8 @@
 const User = require('../models/userModel');
 const Activity = require('../models/activityModel');
 const { default: axios } = require('axios');
+const { MailtrapClient } = require('mailtrap');
+require('dotenv').config();
 
 const createActivity = async (req, res) => {
   try {
@@ -45,36 +47,56 @@ const getActivityFromUserId = async (req, res) => {
 };
 
 const sendEmailMailTrap = async (req, res) => {
-  try {
-    const { toEmail, toName, subject, text } = req.body;
-    
-    const options = {
-      method: "POST",
-      url: "https://send.api.mailtrap.io/api/send",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "Api-Token": process.env.MAILTRAP_API_TOKEN,
-      },
-      data: {
-        to: [{ email: toEmail, name: toName }],
-        from: { email: 'info@mealprep.co.in', name: 'Mealprep Info' },
-        headers: {'X-Message-Source': 'app.mealprep.co.in'},
-        subject: subject,
-        text: text,
-      }
-    };
+  const { toEmail, toName, subject, text } = req.body;
+  const client = new MailtrapClient({ token: process.env.MAILTRAP_API_TOKEN });
+  const sender = {
+    email: "hello@app.mealprep.co.in",
+    name: "Mailtrap Test",
+  };
+  client
+    .send({
+      from: sender,
+      to: [{ email: toEmail, name: toName }],
+      subject: subject,
+      text: text
+    })
+    .then(response => {
+      res.json(response.data);
+    })
+    .catch(error => {
+      console.error('Email sending failed:', error);
+      res.status(500).json({ error: 'Failed to send email' });
+    });
+  // try {
 
-    const response = await axios.request(options);
-    res.json(response.data);
-  } catch (error) {
-    console.error('Email sending failed:', error);
-    res.status(500).json({ error: 'Failed to send email' });
-  }
+  //   const options = {
+  //     method: "POST",
+  //     url: "https://send.api.mailtrap.io/api/send",
+  //     headers: {
+  //       "Content-Type": "application/json",
+  //       Accept: "application/json",
+  //       "Api-Token": process.env.MAILTRAP_API_TOKEN,
+  //       Authorization: `Bearer ${process.env.MAILTRAP_API_TOKEN}`
+  //     },
+  //     data: {
+  //       to: [{ email: toEmail, name: toName }],
+  //       from: { email: 'info@mealprep.co.in', name: 'Mealprep Info' },
+  //       headers: {'X-Message-Source': 'app.mealprep.co.in'},
+  //       subject: subject,
+  //       text: text,
+  //     }
+  //   };
+
+  // const response = await axios.request(options);
+  // res.json(response.data);
+  // } catch (error) {
+  // console.error('Email sending failed:', error);
+  // res.status(500).json({ error: 'Failed to send email' });
+  // }
 };
 
 module.exports = {
   createActivity,
   getActivityFromUserId,
-  sendEmailMailTrap,
-}
+  sendEmailMailTrap
+};

@@ -5,7 +5,6 @@ const { sendEmail } = require('../utils/emailjs');
 const jwt = require('jsonwebtoken');
 const Token = require('../models/token');
 const bcrypt = require('bcrypt');
-const { sendEmailMailTrap } = require('../utils/mailtrapSender');
 require('dotenv').config();
 
 const generateToken = (userId, expires, type) => {
@@ -115,7 +114,6 @@ const getUserByEmailAndPassword = async (req, res) => {
         userId: user.id,
         role: user.role
       });
-      sendEmailMailTrap(user.email, 'Login successful', 'You have successfully logged in to your account');
     } else {
       res.status(401).json({ message: 'Invalid email or password' });
     }
