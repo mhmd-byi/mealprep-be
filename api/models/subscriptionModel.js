@@ -25,6 +25,10 @@ const subscriptionSchema = new Schema(
       type: Number,
       required: true
     },
+    totalMeals: {
+      type: Number,
+      required: true
+    },
     mealType: {
       type: String,
       required: true

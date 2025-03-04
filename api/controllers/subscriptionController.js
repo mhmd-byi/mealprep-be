@@ -326,6 +326,7 @@ const verifyPayment = async (req, res) => {
       plan,
       lunchMeals: lunchMeals,
       dinnerMeals: dinnerMeals,
+      totalMeals: meals,
       mealType: mealType,
       carbType: carbType,
       paymentId: razorpay_payment_id,
