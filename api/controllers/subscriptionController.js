@@ -56,8 +56,8 @@ const getSubscriptionDetails = async (req, res) => {
   try {
     const { userId } = req.params;
     const subscription = await Subscription.findOne({ userId: userId });
-    
-    if (!subscription || subscription.meals <= 0) {
+    const meals = subscription.lunchMeals + subscription.dinnerMeals;
+    if (!subscription || meals <= 0) {
       return res.json({ isSubscribed: false });
     }
     res.json({ isSubscribed: true, subscription });
