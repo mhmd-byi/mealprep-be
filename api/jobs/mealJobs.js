@@ -29,9 +29,9 @@ async function subtractMealBalance(mealType) {
 }
 
 // Schedule tasks to run every day at 9 AM for lunch and 4 PM for dinner, excluding sundays
-cron.schedule('0 9 * * 1-6', () => {
+cron.schedule('0 10 * * 1-6', () => {
   subtractMealBalance('lunch');
-  console.log('Subtracted lunch balances at 9 AM');
+  console.log('Subtracted lunch balances at 10 AM');
 });
 
 cron.schedule('45 16 * * 1-6', () => {
