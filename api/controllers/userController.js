@@ -1,10 +1,11 @@
 const moment = require('moment');
 const User = require('../models/userModel');
 const Subscription = require('../models/subscriptionModel');
-const { sendEmail } = require('../utils/emailjs');
 const jwt = require('jsonwebtoken');
 const Token = require('../models/token');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
+const { MailtrapClient } = require('mailtrap');
 require('dotenv').config();
 
 const generateToken = (userId, expires, type) => {
@@ -215,12 +216,33 @@ const deleteUser = function(req, res) {
 // Forgot and Reset Password API
 const forgotPassword = async function(req, res) {
   const user = await User.findOne({ email: req.body.email });
-  if (user) {
-    await sendEmail(user.email);
-    res.send('email sent');
-  } else {
-    res.send('error sending email');
+  if (!user) {
+    return res.status(200).json({ message: 'If the email exists, a reset link has been sent.' });
   }
+  // Generate token and hash it
+  const token = crypto.randomBytes(20).toString('hex');
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+  
+  user.resetPasswordToken = hashedToken;
+  user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
+  await user.save();
+
+  // Send email via Mailtrap
+  const resetUrl = `https://app.mealprep.co.in/reset-password/${token}`;
+  const client = new MailtrapClient({ token: process.env.MAILTRAP_API_TOKEN });
+  const sender = {
+    email: "hello@app.mealprep.co.in",
+    name: "Mealprep",
+  };
+  
+  client
+    .send({
+      from: sender,
+      to: [{ email: user.email }],
+      subject: 'Password Reset Request',
+      html: `Click <a href="${resetUrl}">here</a> to reset your password. Link expires in 1 hour.`,
+    })
+  res.status(200).json({ message: 'Password reset email sent.' });
 };
 
 // Logout API
@@ -246,6 +268,30 @@ const logout = async (req, res) => {
   }
 };
 
+const resetPassword = async (req, res) => {
+  const { token } = req.params;
+  const { password } = req.body;
+
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+  const user = await User.findOne({
+    resetPasswordToken: hashedToken,
+    resetPasswordExpires: { $gt: Date.now() },
+  });
+
+  if (!user) {
+    return res.status(400).json({ message: 'Invalid or expired token.' });
+  }
+
+  // Update password and clear reset fields
+  user.password = password;
+  user.confirmPassword = password;
+  user.resetPasswordToken = undefined;
+  user.resetPasswordExpires = undefined;
+  await user.save();
+
+  res.status(200).json({ message: 'Password updated successfully.' });
+};
+
 
 module.exports = {
   createUser,
@@ -257,4 +303,5 @@ module.exports = {
   getUserByEmailAndPassword,
   logout,
   getAllUsersWithMealCounts,
+  resetPassword,
 };
