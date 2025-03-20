@@ -6,10 +6,14 @@ async function subtractMealBalance(mealType) {
   const now = new Date();
   now.setHours(0, 0, 0, 0); // Normalize time to start of day
 
-  // Find all cancellations for today and the specific meal type
+  // Find all active cancellations for today and the specific meal type
   const cancellationsToday = await MealCancellation.find({
-    date: now,
-    mealType: mealType
+    startDate: { $lte: now },
+    endDate: { $gte: now },
+    $or: [
+      { mealType: mealType },
+      { mealType: 'both' }
+    ]
   });
 
   // Get user IDs to exclude
