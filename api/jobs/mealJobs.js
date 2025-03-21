@@ -6,18 +6,33 @@ const Subscription = require('../models/subscriptionModel');
 const TIMEZONE = 'Asia/Kolkata'; // UTC+05:30 (Indian Standard Time)
 
 async function subtractMealBalance(mealType) {
-  // Create date in UTC to match database format
+  // Create start and end of current day in UTC
   const now = new Date();
-  // Create a date string in the exact format MongoDB uses (with +00:00)
-  const utcDateString = now.toISOString().replace('Z', '+00:00');
-  const utcDate = new Date(utcDateString);
-  console.log('this is now with MongoDB format', utcDateString);
-  console.log('this is now as Date object', utcDate);
+  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const endOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  
+  console.log('Start of day with ISO:', startOfDay.toISOString());
+  console.log('End of day with ISO:', endOfDay.toISOString());
+  console.log('Start of day:', startOfDay);
+  console.log('End of day:', endOfDay);
 
   // Find all active cancellations for today and the specific meal type
   const cancellationsToday = await MealCancellation.find({
-    startDate: { $lte: utcDateString },
-    endDate: { $gte: utcDateString },
+    $or: [
+      // Case 1: Cancellation spans the entire current day
+      {
+        startDate: { $lte: startOfDay },
+        endDate: { $gte: endOfDay }
+      },
+      // Case 2: Cancellation starts today
+      {
+        startDate: { $gte: startOfDay, $lt: endOfDay }
+      },
+      // Case 3: Cancellation ends today
+      {
+        endDate: { $gt: startOfDay, $lte: endOfDay }
+      }
+    ],
     $or: [
       { mealType: mealType },
       { mealType: 'both' }
@@ -41,7 +56,7 @@ async function subtractMealBalance(mealType) {
 }
 
 // Schedule tasks to run every day at 10:45 AM and 4:45 PM IST, excluding sundays
-cron.schedule('25 11 * * 1-6', () => {
+cron.schedule('31 11 * * 1-6', () => {
   subtractMealBalance('lunch');
   console.log(`Subtracted lunch balances at 11:00 AM IST`); // changing time to 11am for testing
 }, {
