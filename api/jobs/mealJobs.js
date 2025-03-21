@@ -16,8 +16,8 @@ async function subtractMealBalance(mealType) {
 
   // Find all active cancellations for today and the specific meal type
   const cancellationsToday = await MealCancellation.find({
-    startDate: { $lte: utcDate },
-    endDate: { $gte: utcDate },
+    startDate: { $lte: utcDateString },
+    endDate: { $gte: utcDateString },
     $or: [
       { mealType: mealType },
       { mealType: 'both' }
