@@ -42,14 +42,14 @@ async function subtractMealBalance(mealType) {
 
   // Log the query we're about to execute
   const query = {
-    _id: { $nin: userIdsToExclude },
+    userId: { $nin: userIdsToExclude },
     [updateField]: { $gt: 0 }
   };
   console.log('MongoDB Query:', JSON.stringify(query, null, 2));
 
   // First, let's check which users will be affected
   const usersToUpdate = await Subscription.find(query);
-  console.log('Users that will be updated:', usersToUpdate.map(user => user._id));
+  console.log('Users that will be updated:', usersToUpdate.map(user => user.userId));
 
   // Subtract meal from users who haven't cancelled and have at least one meal left
   const result = await Subscription.updateMany(
@@ -61,7 +61,7 @@ async function subtractMealBalance(mealType) {
 }
 
 // Schedule tasks to run every day at 10:45 AM and 4:45 PM IST, excluding sundays
-cron.schedule('50 11 * * 1-6', () => {
+cron.schedule('00 12 * * 1-6', () => {
   subtractMealBalance('lunch');
   console.log(`Subtracted lunch balances at 11:00 AM IST`); // changing time to 11am for testing
 }, {
