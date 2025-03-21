@@ -6,6 +6,7 @@ const userRoutes = function(app) {
     .post(user.createUser);
 
   app.route('/user/login').post(user.getUserByEmailAndPassword);
+  app.route('/user/login-with-otp').post(user.getUserByMobileNumberAndOtp);
   app.route('/user/all').get(user.getAllUsersWithMealCounts);
 
   app

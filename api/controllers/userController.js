@@ -6,6 +6,7 @@ const Token = require('../models/token');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const { MailtrapClient } = require('mailtrap');
+const confirmMobileOtp = require('../models/confirmMobileOtp');
 require('dotenv').config();
 
 const generateToken = (userId, expires, type) => {
@@ -122,6 +123,26 @@ const getUserByEmailAndPassword = async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({ message: 'Internal Server Error', error: error.message });
   }
+};
+
+const getUserByMobileNumberAndOtp = async (req, res) => {
+  const { mobile, otp } = req.body;
+  const user = await User.findOne({ mobile });
+  if (!user) {
+    return res.status(401).json({ message: 'User not found' });
+  }
+  const verifyOtp = await confirmMobileOtp.findOne({ mobileNumber: mobile, otp: otp });
+  if (!verifyOtp) {
+    return res.status(401).json({ message: 'Invalid OTP' });
+  }
+  const tokens = await generateAuthTokens(user);
+  res.json({
+    message: 'Login successful',
+    tokens,
+    userId: user.id,
+    role: user.role,
+    email: user.email
+  });
 };
 
 // Get All Users API
@@ -304,4 +325,5 @@ module.exports = {
   logout,
   getAllUsersWithMealCounts,
   resetPassword,
+  getUserByMobileNumberAndOtp,
 };

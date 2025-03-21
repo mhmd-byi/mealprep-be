@@ -2,6 +2,7 @@ const User = require('../models/userModel');
 const Activity = require('../models/activityModel');
 const { default: axios } = require('axios');
 const { MailtrapClient } = require('mailtrap');
+const confirmMobileOtp = require('../models/confirmMobileOtp');
 require('dotenv').config();
 
 const createActivity = async (req, res) => {
@@ -69,8 +70,65 @@ const sendEmailMailTrap = async (req, res) => {
     });
 };
 
+const sendMessageAiSensy = async (req, res) => {
+  const { mobileNumber, name } = req.body;
+  const generateOtp = Math.floor(100000 + Math.random() * 900000);
+  const otp = generateOtp.toString();
+  const saveOtp = new confirmMobileOtp({
+    mobileNumber,
+    otp
+  })
+  await saveOtp.save();
+  const sendMessage = await axios({
+    method: 'POST',
+    url: process.env.AISENSY_URL,
+    data: {
+      apiKey: process.env.AISENSY_API_KEY,
+      campaignName: 'mobile_number_authentication',
+      destination: mobileNumber,
+      userName: name,
+      templateParams: [
+        otp
+      ],
+      buttons: [
+    {
+      type: "button",
+      sub_type: "url",
+      index: 0,
+      parameters: [
+        {
+          type: "text",
+          text: otp
+        }
+      ]
+    }
+  ],
+    },
+  })
+  .then(response => {
+    res.json(response.data);
+  })
+  .catch(error => {
+    console.error('Message sending failed:', error);
+    res.status(500).json({ error: 'Failed to send message' });
+  });
+  return sendMessage;
+}
+
+const verifyOtp = async (req, res) => {
+  const { mobile, otp } = req.body;
+  const verifyOtp = await confirmMobileOtp.findOne({ mobileNumber: mobile, otp: otp });
+  // const checkOtpExpiry = await confirmMobileOtp.findOne({ mobileNumber: mobile, otp: otp, createdAt: { $lt: new Date(Date.now() - 1000 * 60 * 60 * 24) } });
+  if (!verifyOtp) {
+    return res.status(400).json({ message: 'Invalid OTP' });
+  }
+  res.status(200).json({ message: 'OTP verified successfully' });
+}
+
 module.exports = {
   createActivity,
   getActivityFromUserId,
-  sendEmailMailTrap
+  sendEmailMailTrap,
+  sendMessageAiSensy,
+  verifyOtp
 };
