@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const MealCancellation = require('../models/mealcancellation');
 const Subscription = require('../models/subscriptionModel');
+const mongoose = require('mongoose');
 
 // Set timezone for cron jobs
 const TIMEZONE = 'Asia/Kolkata'; // UTC+05:30 (Indian Standard Time)
@@ -30,7 +31,7 @@ async function subtractMealBalance(mealType) {
     // Check if today's date falls within the cancellation period
     if (todayDate >= startDate && todayDate <= endDate) {
       console.log('inside if')
-      userIdsToExclude.push(cancellation.userId);
+      userIdsToExclude.push(cancellation.userId); // Keep as ObjectId
     }
   }
 
@@ -39,18 +40,28 @@ async function subtractMealBalance(mealType) {
   // Build a dynamic update object based on mealType
   let updateField = `${mealType}Meals`; // Assumes the field names are 'lunchMeals' and 'dinnerMeals'
 
+  // Log the query we're about to execute
+  const query = {
+    _id: { $nin: userIdsToExclude },
+    [updateField]: { $gt: 0 }
+  };
+  console.log('MongoDB Query:', JSON.stringify(query, null, 2));
+
+  // First, let's check which users will be affected
+  const usersToUpdate = await Subscription.find(query);
+  console.log('Users that will be updated:', usersToUpdate.map(user => user._id));
+
   // Subtract meal from users who haven't cancelled and have at least one meal left
-  await Subscription.updateMany(
-    {
-      _id: { $nin: userIdsToExclude },
-      [updateField]: { $gt: 0 } // Use dynamic field for checking if meals are greater than zero
-    },
+  const result = await Subscription.updateMany(
+    query,
     { $inc: { [updateField]: -1 } } // Dynamically decrement the appropriate meal field
   );
+
+  console.log('Update result:', result);
 }
 
 // Schedule tasks to run every day at 10:45 AM and 4:45 PM IST, excluding sundays
-cron.schedule('40 11 * * 1-6', () => {
+cron.schedule('50 11 * * 1-6', () => {
   subtractMealBalance('lunch');
   console.log(`Subtracted lunch balances at 11:00 AM IST`); // changing time to 11am for testing
 }, {
