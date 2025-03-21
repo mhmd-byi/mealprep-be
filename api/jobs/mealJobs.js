@@ -6,41 +6,35 @@ const Subscription = require('../models/subscriptionModel');
 const TIMEZONE = 'Asia/Kolkata'; // UTC+05:30 (Indian Standard Time)
 
 async function subtractMealBalance(mealType) {
-  // Create start and end of current day in UTC
-  const now = new Date();
-  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const endOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
-  
-  console.log('Start of day with ISO:', startOfDay.toISOString());
-  console.log('End of day with ISO:', endOfDay.toISOString());
-  console.log('Start of day:', startOfDay);
-  console.log('End of day:', endOfDay);
+  // Get today's date in YYYY-MM-DD format
+  const today = new Date();
+  const todayDate = today.toISOString().split('T')[0];
+  console.log('Today\'s date:', todayDate);
 
-  // Find all active cancellations for today and the specific meal type
-  const cancellationsToday = await MealCancellation.find({
-    $or: [
-      // Case 1: Cancellation spans the entire current day
-      {
-        startDate: { $lte: startOfDay },
-        endDate: { $gte: endOfDay }
-      },
-      // Case 2: Cancellation starts today
-      {
-        startDate: { $gte: startOfDay, $lt: endOfDay }
-      },
-      // Case 3: Cancellation ends today
-      {
-        endDate: { $gt: startOfDay, $lte: endOfDay }
-      }
-    ],
+  // Get all active cancellations
+  const allCancellations = await MealCancellation.find({
     $or: [
       { mealType: mealType },
       { mealType: 'both' }
     ]
   });
 
-  // Get user IDs to exclude
-  const userIdsToExclude = cancellationsToday.map(cancel => cancel.userId);
+  // Get user IDs to exclude based on date comparison
+  const userIdsToExclude = [];
+  
+  for (const cancellation of allCancellations) {
+    const startDate = cancellation.startDate.toISOString().split('T')[0];
+    const endDate = cancellation.endDate.toISOString().split('T')[0];
+    console.log('startDate', startDate);
+    console.log('endDate', endDate);
+    // Check if today's date falls within the cancellation period
+    if (todayDate >= startDate && todayDate <= endDate) {
+      console.log('inside if')
+      userIdsToExclude.push(cancellation.userId);
+    }
+  }
+
+  console.log('User IDs to exclude:', userIdsToExclude);
 
   // Build a dynamic update object based on mealType
   let updateField = `${mealType}Meals`; // Assumes the field names are 'lunchMeals' and 'dinnerMeals'
@@ -56,7 +50,7 @@ async function subtractMealBalance(mealType) {
 }
 
 // Schedule tasks to run every day at 10:45 AM and 4:45 PM IST, excluding sundays
-cron.schedule('31 11 * * 1-6', () => {
+cron.schedule('40 11 * * 1-6', () => {
   subtractMealBalance('lunch');
   console.log(`Subtracted lunch balances at 11:00 AM IST`); // changing time to 11am for testing
 }, {
