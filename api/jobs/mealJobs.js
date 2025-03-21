@@ -41,7 +41,7 @@ async function subtractMealBalance(mealType) {
 }
 
 // Schedule tasks to run every day at 10:45 AM and 4:45 PM IST, excluding sundays
-cron.schedule('15 11 * * 1-6', () => {
+cron.schedule('25 11 * * 1-6', () => {
   subtractMealBalance('lunch');
   console.log(`Subtracted lunch balances at 11:00 AM IST`); // changing time to 11am for testing
 }, {
