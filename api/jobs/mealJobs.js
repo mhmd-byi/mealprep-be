@@ -8,9 +8,11 @@ const TIMEZONE = 'Asia/Kolkata'; // UTC+05:30 (Indian Standard Time)
 async function subtractMealBalance(mealType) {
   // Create date in UTC to match database format
   const now = new Date();
-  const utcDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  console.log('this is now with ISO', utcDate.toISOString());
-  console.log('this is now without ISO', utcDate);
+  // Create a date string in the exact format MongoDB uses (with +00:00)
+  const utcDateString = now.toISOString().replace('Z', '+00:00');
+  const utcDate = new Date(utcDateString);
+  console.log('this is now with MongoDB format', utcDateString);
+  console.log('this is now as Date object', utcDate);
 
   // Find all active cancellations for today and the specific meal type
   const cancellationsToday = await MealCancellation.find({
@@ -39,7 +41,7 @@ async function subtractMealBalance(mealType) {
 }
 
 // Schedule tasks to run every day at 10:45 AM and 4:45 PM IST, excluding sundays
-cron.schedule('05 11 * * 1-6', () => {
+cron.schedule('15 11 * * 1-6', () => {
   subtractMealBalance('lunch');
   console.log(`Subtracted lunch balances at 11:00 AM IST`); // changing time to 11am for testing
 }, {
