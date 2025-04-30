@@ -122,7 +122,8 @@ const customizeMealRequest = async (req, res) => {
       const { userId, date, items } = req.body;
       const itemsArray = Object.keys(items).map(key => ({
         name: items[key].name,
-        weight: items[key].weight
+        weight: items[key].weight,
+        exclude: items[key].exclude
       }));
       const customisationRequest = new CustomiseMeal({
         userId,
