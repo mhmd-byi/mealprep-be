@@ -252,6 +252,7 @@ const getUserForMealDelivery = async (req, res) => {
       mobile: subscription.userId.mobile,
       mealType: subscription.mealType || '',
       carbType: subscription.carbType || '',
+      plan: subscription.plan || '',
     }));
 
     res.json(userDeliveries);
