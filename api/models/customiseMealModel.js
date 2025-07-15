@@ -4,6 +4,7 @@ const Schema = mongoose.Schema;
 const mealItemSchema = new Schema({
   name: { type: String, required: true },
   weight: { type: String, required: true },
+  exclude: { type: Boolean, required: false },
 });
 
 const customiseMealRequestSchema = new Schema(
