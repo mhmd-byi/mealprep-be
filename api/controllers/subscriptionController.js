@@ -241,10 +241,15 @@ const getUserForMealDelivery = async (req, res) => {
     };
 
     const usersWithMeals = await Subscription.find(query)
-      .populate('userId', 'firstName lastName email mobile postalAddress')
+      .populate('userId', 'firstName lastName email mobile postalAddress role')
       .exec();
 
-    const userDeliveries = usersWithMeals.map(subscription => ({
+    // Filter users to only include those with role 'user'
+    const filteredUsersWithMeals = usersWithMeals.filter(subscription => 
+      subscription.userId && subscription.userId.role === 'user'
+    );
+
+    const userDeliveries = filteredUsersWithMeals.map(subscription => ({
       userId: subscription.userId._id,
       name: `${subscription.userId.firstName} ${subscription.userId.lastName}`,
       email: subscription.userId.email,
