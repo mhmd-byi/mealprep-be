@@ -160,7 +160,7 @@ const getAllUsers = async (req, res) => {
 
 const getAllUsersWithMealCounts = async (req, res) => {
   try {
-    const users = await User.find().lean();
+    const users = await User.find({ role: 'user' }).lean();
     const userMealCounts = await Promise.all(users.map(async (user) => {
       const subscriptions = await Subscription.find({ userId: user._id }).exec();
       const mealCounts = subscriptions.reduce((acc, curr) => {
