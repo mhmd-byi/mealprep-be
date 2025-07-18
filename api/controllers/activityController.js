@@ -58,6 +58,7 @@ const sendEmailMailTrap = async (req, res) => {
     .send({
       from: sender,
       to: [{ email: toEmail, name: toName }],
+      cc: [{ email: "ermoinzafarsheikh@hotmail.com", name: "Mealprep" }],
       subject: subject,
       text: text
     })
