@@ -131,9 +131,15 @@ const getSubscriptionDetails = async (req, res) => {
       return res.json({ isSubscribed: false });
     }
     
-    const meals = subscription.lunchMeals + subscription.dinnerMeals;
-    const nextDayMeals = subscription.nextDayLunchMeals + subscription.nextDayDinnerMeals;
-    const totalMeals = meals + nextDayMeals;
+    // Calculate meals including next-day meals
+    const currentLunchMeals = subscription.lunchMeals || 0;
+    const currentDinnerMeals = subscription.dinnerMeals || 0;
+    const nextDayLunchMeals = subscription.nextDayLunchMeals || 0;
+    const nextDayDinnerMeals = subscription.nextDayDinnerMeals || 0;
+    
+    const currentMeals = currentLunchMeals + currentDinnerMeals;
+    const nextDayMeals = nextDayLunchMeals + nextDayDinnerMeals;
+    const totalMeals = currentMeals + nextDayMeals;
     
     if (totalMeals <= 0) {
       return res.json({ isSubscribed: false });
@@ -143,7 +149,13 @@ const getSubscriptionDetails = async (req, res) => {
       isSubscribed: true,
       subscription: {
         ...subscription.toObject(),
-        totalCurrentMeals: meals,
+        totalCurrentMeals: totalMeals,
+        // Include all meal counts for transparency
+        currentLunchMeals,
+        currentDinnerMeals,
+        nextDayLunchMeals,
+        nextDayDinnerMeals,
+        totalCurrentMeals: currentMeals,
         totalNextDayMeals: nextDayMeals,
         totalAvailableMeals: totalMeals
       }
