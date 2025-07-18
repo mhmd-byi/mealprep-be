@@ -53,6 +53,56 @@ async function subtractMealBalance(mealType) {
   console.log('Update result:', result);
 }
 
+// Function to transfer next-day meals to current day meals
+async function transferNextDayMeals() {
+  console.log('Transferring next-day meals to current day meals...');
+  
+  try {
+    // Find all subscriptions with next-day meals
+    const subscriptionsWithNextDayMeals = await Subscription.find({
+      $or: [
+        { nextDayLunchMeals: { $gt: 0 } },
+        { nextDayDinnerMeals: { $gt: 0 } }
+      ]
+    });
+
+    for (const subscription of subscriptionsWithNextDayMeals) {
+      const updates = {};
+      
+      // Transfer next-day lunch meals to current day
+      if (subscription.nextDayLunchMeals > 0) {
+        updates.lunchMeals = (subscription.lunchMeals || 0) + subscription.nextDayLunchMeals;
+        updates.nextDayLunchMeals = 0;
+        console.log(`Transferred ${subscription.nextDayLunchMeals} lunch meals to current day for user ${subscription.userId}`);
+      }
+      
+      // Transfer next-day dinner meals to current day
+      if (subscription.nextDayDinnerMeals > 0) {
+        updates.dinnerMeals = (subscription.dinnerMeals || 0) + subscription.nextDayDinnerMeals;
+        updates.nextDayDinnerMeals = 0;
+        console.log(`Transferred ${subscription.nextDayDinnerMeals} dinner meals to current day for user ${subscription.userId}`);
+      }
+      
+      // Update the subscription
+      if (Object.keys(updates).length > 0) {
+        await Subscription.findByIdAndUpdate(subscription._id, updates);
+      }
+    }
+    
+    console.log('Next-day meal transfer completed');
+  } catch (error) {
+    console.error('Error transferring next-day meals:', error);
+  }
+}
+
+// Schedule task to transfer next-day meals at 12:00 AM IST (midnight)
+cron.schedule('0 0 * * *', () => {
+  transferNextDayMeals();
+  console.log('Next-day meal transfer scheduled at 12:00 AM IST');
+}, {
+  timezone: TIMEZONE
+});
+
 // Schedule tasks to run every day at 10:45 AM and 4:45 PM IST, excluding sundays
 cron.schedule('45 10 * * 1-6', () => {
   subtractMealBalance('lunch');

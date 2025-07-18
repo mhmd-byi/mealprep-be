@@ -25,6 +25,15 @@ const subscriptionSchema = new Schema(
       type: Number,
       required: true
     },
+    // New fields for next-day meals
+    nextDayLunchMeals: {
+      type: Number,
+      default: 0
+    },
+    nextDayDinnerMeals: {
+      type: Number,
+      default: 0
+    },
     totalMeals: {
       type: Number,
       required: true

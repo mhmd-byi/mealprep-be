@@ -10,6 +10,60 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET
 });
 
+// Helper function to adjust meal counts based on current time
+const adjustMealCountsForTime = (meals, lunchDinner = 'both') => {
+  // Get current date and time in IST
+  const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const currentHour = nowIST.getHours();
+  const currentMinutes = nowIST.getMinutes();
+  const currentTimeInMinutes = currentHour * 60 + currentMinutes;
+
+  let lunchMeals = 0;
+  let dinnerMeals = 0;
+  let nextDayLunchMeals = 0;
+  let nextDayDinnerMeals = 0;
+
+  if (lunchDinner === 'lunch') {
+    lunchMeals = meals;
+  } else if (lunchDinner === 'dinner') {
+    dinnerMeals = meals;
+  } else {
+    // Default: split meals between lunch and dinner
+    lunchMeals = meals / 2;
+    dinnerMeals = meals / 2;
+  }
+
+  // Check if lunch time has passed (11:00 AM = 11 * 60 = 660 minutes)
+  const lunchTimePassed = currentTimeInMinutes > 11 * 60;
+  
+  // Check if dinner time has passed (4:30 PM = 16 * 60 + 30 = 990 minutes)
+  const dinnerTimePassed = currentTimeInMinutes > 16 * 60 + 30;
+
+  // If lunch time has passed and user has lunch meals, move them to next day
+  if (lunchTimePassed && lunchMeals > 0) {
+    console.log(`Lunch time has passed (${currentHour}:${currentMinutes}), moving ${lunchMeals} lunch meals to next day`);
+    nextDayLunchMeals = lunchMeals;
+    lunchMeals = 0; // Remove from current day
+  }
+
+  // If dinner time has passed and user has dinner meals, move them to next day
+  if (dinnerTimePassed && dinnerMeals > 0) {
+    console.log(`Dinner time has passed (${currentHour}:${currentMinutes}), moving ${dinnerMeals} dinner meals to next day`);
+    nextDayDinnerMeals = dinnerMeals;
+    dinnerMeals = 0; // Remove from current day
+  }
+
+  return {
+    lunchMeals,
+    dinnerMeals,
+    nextDayLunchMeals,
+    nextDayDinnerMeals,
+    lunchTimePassed,
+    dinnerTimePassed,
+    adjustedForTime: lunchTimePassed || dinnerTimePassed
+  };
+};
+
 const createSubscription = async (req, res) => {
   try {
     const { userId, plan, startDate, meals } = req.body;
@@ -35,17 +89,33 @@ const createSubscription = async (req, res) => {
 
     const subscriptionStartDate = new Date(startDate);
 
+    // Adjust meal counts based on current time
+    const mealAdjustment = adjustMealCountsForTime(meals);
+
     const subscription = new Subscription({
       userId,
       subscriptionStartDate,
       plan,
-      lunchMeals: meals / 2,
-      dinnerMeals: meals / 2
+      lunchMeals: mealAdjustment.lunchMeals,
+      dinnerMeals: mealAdjustment.dinnerMeals,
+      nextDayLunchMeals: mealAdjustment.nextDayLunchMeals,
+      nextDayDinnerMeals: mealAdjustment.nextDayDinnerMeals
     });
 
     const savedSubscription = await subscription.save();
     console.log('Success: Subscription created');
-    res.status(201).json(savedSubscription);
+    
+    // Include time adjustment information in response
+    const response = {
+      ...savedSubscription.toObject(),
+      timeAdjustment: {
+        lunchTimePassed: mealAdjustment.lunchTimePassed,
+        dinnerTimePassed: mealAdjustment.dinnerTimePassed,
+        adjustedForTime: mealAdjustment.adjustedForTime
+      }
+    };
+    
+    res.status(201).json(response);
   } catch (error) {
     console.error('Error creating subscription:', error);
     res.status(500).json({ message: error.message });
@@ -56,11 +126,30 @@ const getSubscriptionDetails = async (req, res) => {
   try {
     const { userId } = req.params;
     const subscription = await Subscription.findOne({ userId: userId });
-    const meals = subscription.lunchMeals + subscription.dinnerMeals;
-    if (!subscription || meals <= 0) {
+    
+    if (!subscription) {
       return res.json({ isSubscribed: false });
     }
-    res.json({ isSubscribed: true, subscription });
+    
+    const meals = subscription.lunchMeals + subscription.dinnerMeals;
+    const nextDayMeals = subscription.nextDayLunchMeals + subscription.nextDayDinnerMeals;
+    const totalMeals = meals + nextDayMeals;
+    
+    if (totalMeals <= 0) {
+      return res.json({ isSubscribed: false });
+    }
+    
+    const response = {
+      isSubscribed: true,
+      subscription: {
+        ...subscription.toObject(),
+        totalCurrentMeals: meals,
+        totalNextDayMeals: nextDayMeals,
+        totalAvailableMeals: totalMeals
+      }
+    };
+    
+    res.json(response);
   } catch (error) {
     console.error('Error getting subscription details:', error);
     res.status(500).json({ message: 'Internal Server Error', error: error.message });
@@ -311,24 +400,18 @@ const verifyPayment = async (req, res) => {
       console.log('Error: Transaction not legit');
       return res.status(400).json({ message: 'Transaction not legit!' });
     }
-    let lunchMeals = 0;
-    let dinnerMeals = 0;
-
-    if (lunchDinner === 'lunch') {
-      lunchMeals = meals;
-    } else if (lunchDinner === 'dinner') {
-      dinnerMeals = meals
-    } else {
-      lunchMeals = meals / 2;
-      dinnerMeals = meals / 2;
-    }
+    
+    // Adjust meal counts based on current time
+    const mealAdjustment = adjustMealCountsForTime(meals, lunchDinner);
 
     const subscription = new Subscription({
       userId,
       subscriptionStartDate: startDate,
       plan,
-      lunchMeals: lunchMeals,
-      dinnerMeals: dinnerMeals,
+      lunchMeals: mealAdjustment.lunchMeals,
+      dinnerMeals: mealAdjustment.dinnerMeals,
+      nextDayLunchMeals: mealAdjustment.nextDayLunchMeals,
+      nextDayDinnerMeals: mealAdjustment.nextDayDinnerMeals,
       totalMeals: meals,
       mealType: mealType,
       carbType: carbType,
@@ -337,7 +420,18 @@ const verifyPayment = async (req, res) => {
     });
 
     const savedSubscription = await subscription.save();
-    res.status(201).json(savedSubscription);
+    
+    // Include time adjustment information in response
+    const response = {
+      ...savedSubscription.toObject(),
+      timeAdjustment: {
+        lunchTimePassed: mealAdjustment.lunchTimePassed,
+        dinnerTimePassed: mealAdjustment.dinnerTimePassed,
+        adjustedForTime: mealAdjustment.adjustedForTime
+      }
+    };
+    
+    res.status(201).json(response);
   } catch (error) {
     console.error('Error verifying payment:', error);
     res.status(500).json({ message: 'Error verifying payment' });
