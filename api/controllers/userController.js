@@ -166,8 +166,10 @@ const getAllUsersWithMealCounts = async (req, res) => {
       const mealCounts = subscriptions.reduce((acc, curr) => {
         acc.lunchMeals += curr.lunchMeals;
         acc.dinnerMeals += curr.dinnerMeals;
+        acc.nextDayLunchMeals += curr.nextDayLunchMeals;
+        acc.nextDayDinnerMeals += curr.nextDayDinnerMeals;
         return acc;
-      }, { lunchMeals: 0, dinnerMeals: 0 });
+      }, { lunchMeals: 0, dinnerMeals: 0, nextDayLunchMeals: 0, nextDayDinnerMeals: 0 });
 
       return {
         ...user,
