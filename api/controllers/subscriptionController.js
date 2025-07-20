@@ -179,6 +179,19 @@ const cancelMealRequest = async (req, res) => {
       });
     }
 
+    // Duplicate cancellation check
+    const duplicate = await MealCancellation.findOne({
+      userId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      mealType
+    });
+    if (duplicate) {
+      return res.status(400).json({
+        message: 'You have already cancelled this meal for the selected date and meal type.'
+      });
+    }
+
     // Create dates in IST
     const start = new Date(startDate);
     const end = new Date(endDate);
