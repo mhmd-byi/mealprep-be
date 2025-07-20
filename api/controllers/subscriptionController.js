@@ -339,14 +339,19 @@ const getUserForMealDelivery = async (req, res) => {
       return res.status(400).json({ message: 'Valid meal type is required (lunch or dinner).' });
     }
 
-    const cancellationDate = new Date(date);
+    const deliveryDate = new Date(date);
+
+    // Find all cancellations for this date and mealType
     const cancellations = await MealCancellation.find({
-      date: cancellationDate,
-      mealType: mealType
+      startDate: { $lte: deliveryDate },
+      endDate: { $gte: deliveryDate },
+      $or: [
+        { mealType: mealType },
+        { mealType: 'both' }
+      ]
     }).exec();
 
     const cancelledUserIds = cancellations.map(c => c.userId);
-    
 
     const mealKey = mealType + 'Meals';
     const query = {
