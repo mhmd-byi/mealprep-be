@@ -4,6 +4,7 @@ const MealCancellation = require('../models/mealcancellation');
 const Activity = require('../models/activityModel');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -341,7 +342,7 @@ const getUserForMealDelivery = async (req, res) => {
 
     const deliveryDate = new Date(date);
 
-    // Find all cancellations for this date and mealType
+    // Find all cancellations for this date and mealType (including 'both')
     const cancellations = await MealCancellation.find({
       startDate: { $lte: deliveryDate },
       endDate: { $gte: deliveryDate },
@@ -351,13 +352,19 @@ const getUserForMealDelivery = async (req, res) => {
       ]
     }).exec();
 
-    const cancelledUserIds = cancellations.map(c => c.userId);
+    // Ensure all IDs are ObjectId type
+    const cancelledUserIds = cancellations.map(c => 
+      typeof c.userId === 'string' ? mongoose.Types.ObjectId(c.userId) : c.userId
+    );
+
+    console.log('cancelled userIds:', cancelledUserIds);
 
     const mealKey = mealType + 'Meals';
     const query = {
-      _id: { $nin: cancelledUserIds },
+      userId: { $nin: cancelledUserIds },
       [mealKey]: { $gt: 0 }
     };
+    console.log('Query for meal delivery:', query);
 
     const usersWithMeals = await Subscription.find(query)
       .populate('userId', 'firstName lastName email mobile postalAddress role')
