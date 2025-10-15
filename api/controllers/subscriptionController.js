@@ -126,7 +126,8 @@ const createSubscription = async (req, res) => {
 const getSubscriptionDetails = async (req, res) => {
   try {
     const { userId } = req.params;
-    const subscription = await Subscription.findOne({ userId: userId });
+    const subscriptionAll = await Subscription.find({ userId: userId });
+    const subscription = subscriptionAll[subscriptionAll.length - 1];
     
     if (!subscription) {
       return res.json({ isSubscribed: false });
