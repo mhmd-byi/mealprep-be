@@ -1,9 +1,37 @@
 const cron = require('node-cron');
 const MealCancellation = require('../models/mealcancellation');
 const Subscription = require('../models/subscriptionModel');
+const Holiday = require('../models/holidayModel');
 
 // Set timezone for cron jobs
 const TIMEZONE = 'Asia/Kolkata'; // UTC+05:30 (Indian Standard Time)
+
+// Function to check if today is a holiday
+async function isHoliday() {
+  const today = new Date();
+  // Get today's date at midnight UTC to match the database format
+  const todayDate = today.toISOString().split('T')[0];
+  const todayStartUTC = new Date(todayDate + 'T00:00:00.000Z');
+  const todayEndUTC = new Date(todayDate + 'T23:59:59.999Z');
+  
+  try {
+    const holiday = await Holiday.findOne({
+      date: {
+        $gte: todayStartUTC,
+        $lte: todayEndUTC
+      }
+    });
+    
+    if (holiday) {
+      console.log(`Today (${todayDate}) is a holiday: ${holiday.description}`);
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error('Error checking holiday status:', error);
+    return false; // In case of error, proceed with normal operation
+  }
+}
 
 async function subtractMealBalance(mealType) {
   // Get today's date in YYYY-MM-DD format
@@ -104,14 +132,24 @@ cron.schedule('0 0 * * *', () => {
 });
 
 // Schedule tasks to run every day at 10:45 AM and 4:45 PM IST, excluding sundays
-cron.schedule('45 10 * * 1-6', () => {
+cron.schedule('45 10 * * 1-6', async () => {
+  const holidayToday = await isHoliday();
+  if (holidayToday) {
+    console.log('Skipping lunch meal subtraction due to holiday');
+    return;
+  }
   subtractMealBalance('lunch');
   console.log(`Subtracted lunch balances at 10:45 AM IST`);
 }, {
   timezone: TIMEZONE
 });
 
-cron.schedule('45 16 * * 1-6', () => {
+cron.schedule('45 16 * * 1-6', async () => {
+  const holidayToday = await isHoliday();
+  if (holidayToday) {
+    console.log('Skipping dinner meal subtraction due to holiday');
+    return;
+  }
   subtractMealBalance('dinner');
   console.log(`Subtracted dinner balances at 4:45 PM IST`);
 }, {
