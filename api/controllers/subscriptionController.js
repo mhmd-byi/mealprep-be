@@ -397,7 +397,7 @@ const getUserForMealDelivery = async (req, res) => {
 
 const createRazorpayOrder = async (req, res) => {
   try {
-    const { amount, plan, meals, userId, carbType, mealType, lunchDinner } = req.body;
+    const { amount, plan, meals, userId, carbType, mealType, lunchDinner, mealStartDate } = req.body;
 
     const options = {
       amount: amount * 100,
@@ -414,7 +414,6 @@ const createRazorpayOrder = async (req, res) => {
     };
 
     const order = await razorpay.orders.create(options);
-    console.log('Success: Razorpay order created');
     res.json({
       orderId: order.id,
       amount: order.amount,

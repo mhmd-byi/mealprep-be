@@ -86,6 +86,10 @@ async function transferNextDayMeals() {
   console.log('Transferring next-day meals to current day meals...');
   
   try {
+    // Get current date in YYYY-MM-DD format
+    const today = new Date();
+    const currentDate = today.toISOString().split('T')[0];
+    
     // Find all subscriptions with next-day meals
     const subscriptionsWithNextDayMeals = await Subscription.find({
       $or: [
@@ -95,6 +99,12 @@ async function transferNextDayMeals() {
     });
 
     for (const subscription of subscriptionsWithNextDayMeals) {
+      // Check if mealStartDate matches current date
+      if (!subscription.mealStartDate || subscription.mealStartDate !== currentDate) {
+        console.log(`Skipping transfer for user ${subscription.userId} - mealStartDate (${subscription.mealStartDate}) does not match current date (${currentDate})`);
+        continue;
+      }
+      
       const updates = {};
       
       // Transfer next-day lunch meals to current day

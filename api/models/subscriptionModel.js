@@ -47,7 +47,8 @@ const subscriptionSchema = new Schema(
       required: true
     },
     paymentId: { type: String },
-    orderId: { type: String }
+    orderId: { type: String },
+    mealStartDate: { type: String }
   },
   {
     timestamps: true
