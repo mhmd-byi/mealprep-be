@@ -279,7 +279,6 @@ const fetchMenuImages = async (req, res) => {
 const deleteAnImage = async (req, res) => {
   try {
     const { url, date } = req.body;
-    console.log('this is url', url)
 
     if (!date) {
       return res.status(400).json({ message: 'Date parameter is required' });

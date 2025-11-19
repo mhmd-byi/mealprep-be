@@ -147,7 +147,6 @@ const getUserByMobileNumberAndOtp = async (req, res) => {
 
 // Get All Users API
 const getAllUsers = async (req, res) => {
-  console.log('here')
   try {
     const response = await User.find({});
     res.status(200).json({
@@ -273,7 +272,6 @@ const logout = async (req, res) => {
   try {
     const { refreshToken } = req.body;
 
-    console.log('Received refreshToken:', refreshToken);
 
     if (!refreshToken) {
       return res.status(400).json({ message: 'Refresh token is required' });

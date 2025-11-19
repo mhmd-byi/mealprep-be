@@ -42,14 +42,12 @@ const adjustMealCountsForTime = (meals, lunchDinner = 'both') => {
 
   // If lunch time has passed and user has lunch meals, move them to next day
   if (lunchTimePassed && lunchMeals > 0) {
-    console.log(`Lunch time has passed (${currentHour}:${currentMinutes}), moving ${lunchMeals} lunch meals to next day`);
     nextDayLunchMeals = lunchMeals;
     lunchMeals = 0; // Remove from current day
   }
 
   // If dinner time has passed and user has dinner meals, move them to next day
   if (dinnerTimePassed && dinnerMeals > 0) {
-    console.log(`Dinner time has passed (${currentHour}:${currentMinutes}), moving ${dinnerMeals} dinner meals to next day`);
     nextDayDinnerMeals = dinnerMeals;
     dinnerMeals = 0; // Remove from current day
   }
@@ -70,7 +68,6 @@ const createSubscription = async (req, res) => {
     const { userId, plan, startDate, meals } = req.body;
 
     if (!userId || !plan || !startDate || !meals) {
-      console.log('Error: Missing required fields');
       return res
         .status(400)
         .json({ message: 'Missing required fields: userId, plan, meals and startDate are required.' });
@@ -78,13 +75,11 @@ const createSubscription = async (req, res) => {
 
     const user = await User.findById(userId);
     if (!user) {
-      console.log('Error: User not found');
       return res.status(404).json({ message: 'User not found' });
     }
 
     const validPlans = ['Trial Meal Pack', 'Weekly Plan', 'Monthly Plan'];
     if (!validPlans.includes(plan)) {
-      console.log('Error: Invalid plan');
       return res.status(400).json({ message: 'Invalid plan' });
     }
 
@@ -104,7 +99,6 @@ const createSubscription = async (req, res) => {
     });
 
     const savedSubscription = await subscription.save();
-    console.log('Success: Subscription created');
     
     // Include time adjustment information in response
     const response = {
@@ -175,7 +169,6 @@ const cancelMealRequest = async (req, res) => {
     const { userId, startDate, endDate, mealType } = req.body;
 
     if (!userId || !startDate || !endDate || !mealType) {
-      console.log('Error: Missing required fields');
       return res.status(400).json({ 
         message: 'Missing required fields: userId, startDate, endDate, and mealType are required.' 
       });
@@ -260,7 +253,6 @@ const cancelMealRequest = async (req, res) => {
     }
 
     if (end < start) {
-      console.log('Error: Invalid date range');
       return res.status(400).json({ 
         message: 'Invalid date range. End date must be after start date.' 
       });
@@ -293,7 +285,6 @@ const getCancelledMeals = async (req, res) => {
     const { date } = req.query;
 
     if (!date) {
-      console.log('Error: Missing required fields');
       return res.status(400).json({ message: 'Missing required date.' });
     }
 
@@ -305,7 +296,6 @@ const getCancelledMeals = async (req, res) => {
     }).exec();
 
     if (cancelledMeals.length === 0) {
-      console.log('Success: No cancelled meals found');
       return res.status(404).json({ message: 'No cancelled meals found.' });
     }
 
@@ -320,7 +310,6 @@ const getCancelledMeals = async (req, res) => {
       mealType: meal.mealType
     }));
 
-    console.log('Success: Cancelled meals fetched');
     res.json(formattedMeals);
   } catch (error) {
     console.error('Error fetching cancelled meals:', error);
@@ -333,7 +322,6 @@ const getUserForMealDelivery = async (req, res) => {
     const { date, mealType } = req.query;
 
     if (!date) {
-      console.log('Error: Missing required fields');
       return res.status(400).json({ message: 'Date is required.' });
     }
 
@@ -358,14 +346,12 @@ const getUserForMealDelivery = async (req, res) => {
       typeof c.userId === 'string' ? mongoose.Types.ObjectId(c.userId) : c.userId
     );
 
-    console.log('cancelled userIds:', cancelledUserIds);
 
     const mealKey = mealType + 'Meals';
     const query = {
       userId: { $nin: cancelledUserIds },
       [mealKey]: { $gt: 0 }
     };
-    console.log('Query for meal delivery:', query);
 
     const usersWithMeals = await Subscription.find(query)
       .populate('userId', 'firstName lastName email mobile postalAddress role')
@@ -434,7 +420,6 @@ const verifyPayment = async (req, res) => {
     const digest = shasum.digest('hex');
 
     if (digest !== razorpay_signature) {
-      console.log('Error: Transaction not legit');
       return res.status(400).json({ message: 'Transaction not legit!' });
     }
     
