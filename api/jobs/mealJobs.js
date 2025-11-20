@@ -99,9 +99,12 @@ async function transferNextDayMeals() {
     });
 
     for (const subscription of subscriptionsWithNextDayMeals) {
-      // Check if mealStartDate matches current date
-      if (!subscription.mealStartDate || subscription.mealStartDate !== currentDate) {
-        console.log(`Skipping transfer for user ${subscription.userId} - mealStartDate (${subscription.mealStartDate}) does not match current date (${currentDate})`);
+      // Get subscription start date in YYYY-MM-DD format for comparison
+      const subscriptionStartDate = subscription.subscriptionStartDate.toISOString().split('T')[0];
+      
+      // Check if subscription start date is less than or equal to current date
+      if (!subscription.subscriptionStartDate || subscriptionStartDate > currentDate) {
+        console.log(`Skipping transfer for user ${subscription.userId} - subscriptionStartDate (${subscriptionStartDate}) is after current date (${currentDate})`);
         continue;
       }
       
