@@ -58,11 +58,15 @@ async function subtractMealBalance(mealType) {
     }
   }
 
+  console.log(`Excluding ${userIdsToExclude.length} users due to meal cancellations for ${mealType}:`, userIdsToExclude);
 
   // Build a dynamic update object based on mealType
   let updateField = `${mealType}Meals`; // Assumes the field names are 'lunchMeals' and 'dinnerMeals'
 
-  // Log the query we're about to execute
+  // Build query to:
+  // 1. Exclude users with active cancellations
+  // 2. Only include users whose subscription has started (subscriptionStartDate <= today)
+  // 3. Only include users with meals remaining
   const query = {
     userId: { $nin: userIdsToExclude },
     [updateField]: { $gt: 0 }
@@ -70,15 +74,55 @@ async function subtractMealBalance(mealType) {
 
   // First, let's check which users will be affected
   const usersToUpdate = await Subscription.find(query);
-  console.log('Users that will be updated:', usersToUpdate.map(user => user.userId));
+  
+  // Filter users based on subscriptionStartDate
+  const eligibleUsers = [];
+  const skippedUsers = [];
+  
+  for (const subscription of usersToUpdate) {
+    const subscriptionStartDate = subscription.subscriptionStartDate.toISOString().split('T')[0];
+    
+    // Check if subscription has started
+    if (subscriptionStartDate <= todayDate) {
+      eligibleUsers.push(subscription);
+    } else {
+      skippedUsers.push({
+        userId: subscription.userId,
+        subscriptionStartDate: subscriptionStartDate,
+        reason: 'Subscription has not started yet'
+      });
+    }
+  }
 
-  // Subtract meal from users who haven't cancelled and have at least one meal left
+  console.log(`Found ${eligibleUsers.length} eligible users for ${mealType} meal subtraction`);
+  console.log('Eligible users:', eligibleUsers.map(user => ({
+    userId: user.userId,
+    [updateField]: user[updateField],
+    subscriptionStartDate: user.subscriptionStartDate.toISOString().split('T')[0]
+  })));
+  
+  if (skippedUsers.length > 0) {
+    console.log(`Skipped ${skippedUsers.length} users whose subscriptions haven't started:`, skippedUsers);
+  }
+
+  // Update only eligible users (subscription started and not cancelled)
+  const finalQuery = {
+    _id: { $in: eligibleUsers.map(user => user._id) },
+    [updateField]: { $gt: 0 }
+  };
+
+  // Subtract meal from eligible users who have at least one meal left
   const result = await Subscription.updateMany(
-    query,
+    finalQuery,
     { $inc: { [updateField]: -1 } } // Dynamically decrement the appropriate meal field
   );
 
-  console.log('Update result:', result);
+  console.log(`${mealType} meal subtraction result:`, {
+    matchedCount: result.matchedCount,
+    modifiedCount: result.modifiedCount,
+    excludedDueToCancellations: userIdsToExclude.length,
+    skippedDueToStartDate: skippedUsers.length
+  });
 }
 
 // Function to transfer next-day meals to current day meals
