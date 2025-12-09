@@ -11,13 +11,16 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET
 });
 
-// Helper function to adjust meal counts based on current time
-const adjustMealCountsForTime = (meals, lunchDinner = 'both') => {
+// Helper function to adjust meal counts based on current time and subscription start date
+const adjustMealCountsForTime = (meals, lunchDinner = 'both', subscriptionStartDate = null) => {
   // Get current date and time in IST
   const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   const currentHour = nowIST.getHours();
   const currentMinutes = nowIST.getMinutes();
   const currentTimeInMinutes = currentHour * 60 + currentMinutes;
+
+  // Get current date in YYYY-MM-DD format for comparison
+  const currentDate = nowIST.toISOString().split('T')[0];
 
   let lunchMeals = 0;
   let dinnerMeals = 0;
@@ -34,32 +37,71 @@ const adjustMealCountsForTime = (meals, lunchDinner = 'both') => {
     dinnerMeals = meals / 2;
   }
 
-  // Check if lunch time has passed (11:00 AM = 11 * 60 = 660 minutes)
-  const lunchTimePassed = currentTimeInMinutes > 11 * 60;
-  
-  // Check if dinner time has passed (4:30 PM = 16 * 60 + 30 = 990 minutes)
-  const dinnerTimePassed = currentTimeInMinutes > 16 * 60 + 30;
-
-  // If lunch time has passed and user has lunch meals, move them to next day
-  if (lunchTimePassed && lunchMeals > 0) {
-    nextDayLunchMeals = lunchMeals;
-    lunchMeals = 0; // Remove from current day
+  // Check if subscription start date is provided and if it's a future date
+  let subscriptionStartsToday = true;
+  if (subscriptionStartDate) {
+    const startDate = new Date(subscriptionStartDate).toISOString().split('T')[0];
+    subscriptionStartsToday = startDate === currentDate;
+    const subscriptionStartsInFuture = startDate > currentDate;
+    
+    // If subscription starts in the future, don't apply time-based adjustments
+    if (subscriptionStartsInFuture) {
+      console.log(`Subscription starts on ${startDate}, no time adjustment needed (current date: ${currentDate})`);
+      return {
+        lunchMeals,
+        dinnerMeals,
+        nextDayLunchMeals,
+        nextDayDinnerMeals,
+        lunchTimePassed: false,
+        dinnerTimePassed: false,
+        adjustedForTime: false,
+        reason: 'Subscription starts in the future'
+      };
+    }
   }
 
-  // If dinner time has passed and user has dinner meals, move them to next day
-  if (dinnerTimePassed && dinnerMeals > 0) {
-    nextDayDinnerMeals = dinnerMeals;
-    dinnerMeals = 0; // Remove from current day
+  // Only apply time-based adjustments if subscription starts today
+  if (subscriptionStartsToday) {
+    // Check if lunch time has passed (11:00 AM = 11 * 60 = 660 minutes)
+    const lunchTimePassed = currentTimeInMinutes > 11 * 60;
+    
+    // Check if dinner time has passed (4:30 PM = 16 * 60 + 30 = 990 minutes)
+    const dinnerTimePassed = currentTimeInMinutes > 16 * 60 + 30;
+
+    // If lunch time has passed and user has lunch meals, move them to next day
+    if (lunchTimePassed && lunchMeals > 0) {
+      nextDayLunchMeals = lunchMeals;
+      lunchMeals = 0; // Remove from current day
+      console.log(`Lunch time has passed, moving ${nextDayLunchMeals} lunch meals to next day`);
+    }
+
+    // If dinner time has passed and user has dinner meals, move them to next day
+    if (dinnerTimePassed && dinnerMeals > 0) {
+      nextDayDinnerMeals = dinnerMeals;
+      dinnerMeals = 0; // Remove from current day
+      console.log(`Dinner time has passed, moving ${nextDayDinnerMeals} dinner meals to next day`);
+    }
+
+    return {
+      lunchMeals,
+      dinnerMeals,
+      nextDayLunchMeals,
+      nextDayDinnerMeals,
+      lunchTimePassed,
+      dinnerTimePassed,
+      adjustedForTime: lunchTimePassed || dinnerTimePassed
+    };
   }
 
+  // Default return if subscription already started (past date)
   return {
     lunchMeals,
     dinnerMeals,
     nextDayLunchMeals,
     nextDayDinnerMeals,
-    lunchTimePassed,
-    dinnerTimePassed,
-    adjustedForTime: lunchTimePassed || dinnerTimePassed
+    lunchTimePassed: false,
+    dinnerTimePassed: false,
+    adjustedForTime: false
   };
 };
 
@@ -85,8 +127,8 @@ const createSubscription = async (req, res) => {
 
     const subscriptionStartDate = new Date(startDate);
 
-    // Adjust meal counts based on current time
-    const mealAdjustment = adjustMealCountsForTime(meals);
+    // Adjust meal counts based on current time and subscription start date
+    const mealAdjustment = adjustMealCountsForTime(meals, 'both', subscriptionStartDate);
 
     const subscription = new Subscription({
       userId,
@@ -423,8 +465,8 @@ const verifyPayment = async (req, res) => {
       return res.status(400).json({ message: 'Transaction not legit!' });
     }
     
-    // Adjust meal counts based on current time
-    const mealAdjustment = adjustMealCountsForTime(meals, lunchDinner);
+    // Adjust meal counts based on current time and subscription start date
+    const mealAdjustment = adjustMealCountsForTime(meals, lunchDinner, new Date(startDate));
 
     const subscription = new Subscription({
       userId,
