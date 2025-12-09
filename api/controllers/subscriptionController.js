@@ -438,6 +438,7 @@ const createRazorpayOrder = async (req, res) => {
         carbType: carbType,
         mealType: mealType,
         lunchDinner: lunchDinner,
+        mealStartDate,
       }
     };
 
@@ -456,7 +457,7 @@ const createRazorpayOrder = async (req, res) => {
 
 const verifyPayment = async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals, mealType, carbType, lunchDinner } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals, mealType, carbType, lunchDinner, mealStartDate } = req.body;
     const shasum = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
     shasum.update(`${razorpay_order_id}|${razorpay_payment_id}`);
     const digest = shasum.digest('hex');
@@ -470,7 +471,7 @@ const verifyPayment = async (req, res) => {
 
     const subscription = new Subscription({
       userId,
-      subscriptionStartDate: startDate,
+      subscriptionStartDate: mealStartDate,
       plan,
       lunchMeals: mealAdjustment.lunchMeals,
       dinnerMeals: mealAdjustment.dinnerMeals,
