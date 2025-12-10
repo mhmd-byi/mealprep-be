@@ -27,6 +27,7 @@ const adjustMealCountsForTime = (meals, lunchDinner = 'both', subscriptionStartD
   let nextDayLunchMeals = 0;
   let nextDayDinnerMeals = 0;
 
+  // Distribute meals based on meal type
   if (lunchDinner === 'lunch') {
     lunchMeals = meals;
   } else if (lunchDinner === 'dinner') {
@@ -37,48 +38,78 @@ const adjustMealCountsForTime = (meals, lunchDinner = 'both', subscriptionStartD
     dinnerMeals = meals / 2;
   }
 
-  // Check if subscription start date is provided and if it's a future date
-  let subscriptionStartsToday = true;
-  if (subscriptionStartDate) {
-    const startDate = new Date(subscriptionStartDate).toISOString().split('T')[0];
-    subscriptionStartsToday = startDate === currentDate;
-    const subscriptionStartsInFuture = startDate > currentDate;
-    
-    // If subscription starts in the future, don't apply time-based adjustments
-    // Meals should remain in regular slots for transfer on the start date
-    if (subscriptionStartsInFuture) {
-      console.log(`Subscription starts on ${startDate}, no time adjustment needed (current date: ${currentDate})`);
-      return {
-        lunchMeals,
-        dinnerMeals,
-        nextDayLunchMeals,
-        nextDayDinnerMeals,
-        lunchTimePassed: false,
-        dinnerTimePassed: false,
-        adjustedForTime: false,
-        reason: 'Subscription starts in the future'
-      };
-    }
-    
-    // If subscription starts today, meals should go to current day slots
-    // The API already prevents same-day subscriptions after cutoff times
-    if (subscriptionStartsToday) {
-      console.log(`Subscription starts today (${startDate}), meals added to current day slots`);
-      return {
-        lunchMeals,
-        dinnerMeals,
-        nextDayLunchMeals: 0,
-        nextDayDinnerMeals: 0,
-        lunchTimePassed: false,
-        dinnerTimePassed: false,
-        adjustedForTime: false,
-        reason: 'Subscription starts today - API prevents late subscriptions'
-      };
-    }
+  // If no subscription start date provided, return meals as is
+  if (!subscriptionStartDate) {
+    return {
+      lunchMeals,
+      dinnerMeals,
+      nextDayLunchMeals: 0,
+      nextDayDinnerMeals: 0,
+      lunchTimePassed: false,
+      dinnerTimePassed: false,
+      adjustedForTime: false
+    };
   }
 
-  // If subscription started in the past, apply meals to current day
-  // (This handles edge cases where old subscriptions are being processed)
+  const startDate = new Date(subscriptionStartDate).toISOString().split('T')[0];
+  const subscriptionStartsToday = startDate === currentDate;
+  const subscriptionStartsInFuture = startDate > currentDate;
+
+  // CASE 1: If subscription start date is GREATER than current date (future date)
+  // Move ALL meals to next day
+  if (subscriptionStartsInFuture) {
+    console.log(`Subscription starts in future (${startDate}), moving all meals to next day`);
+    return {
+      lunchMeals: 0,
+      dinnerMeals: 0,
+      nextDayLunchMeals: lunchMeals,
+      nextDayDinnerMeals: dinnerMeals,
+      lunchTimePassed: false,
+      dinnerTimePassed: false,
+      adjustedForTime: true,
+      reason: 'Subscription starts in the future - all meals moved to next day'
+    };
+  }
+
+  // CASE 2: If subscription start date is SAME as current date
+  // Apply time-based rules
+  if (subscriptionStartsToday) {
+    // Check if lunch time has passed (9:00 AM = 9 * 60 = 540 minutes)
+    const lunchTimePassed = currentTimeInMinutes > 9 * 60;
+    
+    // Check if dinner time has passed (4:00 PM = 16 * 60 = 960 minutes)
+    const dinnerTimePassed = currentTimeInMinutes > 16 * 60;
+
+    // If lunch time has passed (after 9 AM), move lunch meals to next day
+    if (lunchTimePassed && lunchMeals > 0) {
+      nextDayLunchMeals = lunchMeals;
+      lunchMeals = 0;
+      console.log(`Current time after 9 AM, moving ${nextDayLunchMeals} lunch meals to next day`);
+    }
+
+    // If dinner time has passed (after 4 PM), move dinner meals to next day
+    if (dinnerTimePassed && dinnerMeals > 0) {
+      nextDayDinnerMeals = dinnerMeals;
+      dinnerMeals = 0;
+      console.log(`Current time after 4 PM, moving ${nextDayDinnerMeals} dinner meals to next day`);
+    }
+
+    console.log(`Subscription starts today (${startDate}), time-based adjustment applied`);
+    return {
+      lunchMeals,
+      dinnerMeals,
+      nextDayLunchMeals,
+      nextDayDinnerMeals,
+      lunchTimePassed,
+      dinnerTimePassed,
+      adjustedForTime: lunchTimePassed || dinnerTimePassed,
+      reason: 'Subscription starts today - time-based adjustment applied'
+    };
+  }
+
+  // CASE 3: If subscription started in the PAST
+  // Keep meals in current day slots
+  console.log(`Subscription already started (${startDate}), keeping meals in current day`);
   return {
     lunchMeals,
     dinnerMeals,
