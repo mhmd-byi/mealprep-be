@@ -146,10 +146,15 @@ async function transferNextDayMeals() {
       // Get subscription start date in YYYY-MM-DD format for comparison
       const subscriptionStartDate = subscription.subscriptionStartDate.toISOString().split('T')[0];
       
-      // Check if subscription start date is less than or equal to current date
+      // Check if subscription start date is less than or equal to current date (includes today)
       if (!subscription.subscriptionStartDate || subscriptionStartDate > currentDate) {
         console.log(`Skipping transfer for user ${subscription.userId} - subscriptionStartDate (${subscriptionStartDate}) is after current date (${currentDate})`);
         continue;
+      }
+      
+      // Log when transferring for a subscription that starts today
+      if (subscriptionStartDate === currentDate) {
+        console.log(`Transferring meals for user ${subscription.userId} - subscription starts today (${subscriptionStartDate})`);
       }
       
       const updates = {};
@@ -180,10 +185,10 @@ async function transferNextDayMeals() {
   }
 }
 
-// Schedule task to transfer next-day meals at 12:00 AM IST (midnight)
-cron.schedule('0 0 * * *', () => {
+// Schedule task to transfer next-day meals at 5:30 AM IST
+cron.schedule('30 5 * * *', () => {
   transferNextDayMeals();
-  console.log('Next-day meal transfer scheduled at 12:00 AM IST');
+  console.log('Next-day meal transfer scheduled at 5:30 AM IST');
 }, {
   timezone: TIMEZONE
 });
