@@ -74,8 +74,8 @@ const adjustMealCountsForTime = (meals, lunchDinner = 'both', subscriptionStartD
   // CASE 2: If subscription start date is SAME as current date
   // Apply time-based rules
   if (subscriptionStartsToday) {
-    // Check if lunch time has passed (9:00 AM = 9 * 60 = 540 minutes)
-    const lunchTimePassed = currentTimeInMinutes > 9 * 60;
+    // Check if lunch time has passed (10:30 AM = 10.5 * 60 = 630 minutes)
+    const lunchTimePassed = currentTimeInMinutes > 10.5 * 60;
     
     // Check if dinner time has passed (4:00 PM = 16 * 60 = 960 minutes)
     const dinnerTimePassed = currentTimeInMinutes > 16 * 60;
