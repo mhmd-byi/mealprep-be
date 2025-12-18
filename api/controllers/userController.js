@@ -60,7 +60,7 @@ class ApiError extends Error {
 }
 
 // Create a new User API
-const createUser = async function(req, res) {
+const createUser = async function (req, res) {
   try {
     const emails = await User.find({ email: req.body.email });
     const mobiles = await User.find({ mobile: req.body.mobile });
@@ -74,7 +74,7 @@ const createUser = async function(req, res) {
       ...req.body,
       role: 'user'
     });
-    newUser.save(async function(err, user) {
+    newUser.save(async function (err, user) {
       if (err) {
         throw new ApiError('Database error on user creation', 500);
       }
@@ -185,8 +185,8 @@ const getAllUsersWithMealCounts = async (req, res) => {
 };
 
 // Get User By ID API
-const getUserById = function(req, res) {
-  User.findById(req.params.userId, function(err, user) {
+const getUserById = function (req, res) {
+  User.findById(req.params.userId, function (err, user) {
     if (err) {
       res.send(err);
     } else if (!user) {
@@ -198,7 +198,7 @@ const getUserById = function(req, res) {
 };
 
 // Update User API
-const updateUser = async function(req, res) {
+const updateUser = async function (req, res) {
   let updateData = { ...req.body };
 
   if (updateData.password) {
@@ -221,12 +221,12 @@ const updateUser = async function(req, res) {
 };
 
 // Delete User API
-const deleteUser = function(req, res) {
+const deleteUser = function (req, res) {
   User.remove(
     {
       _id: req.params.userId
     },
-    function(err, user) {
+    function (err, user) {
       if (err) {
         res.send(err);
       }
@@ -236,7 +236,7 @@ const deleteUser = function(req, res) {
 };
 
 // Forgot and Reset Password API
-const forgotPassword = async function(req, res) {
+const forgotPassword = async function (req, res) {
   const user = await User.findOne({ email: req.body.email });
   if (!user) {
     return res.status(200).json({ message: 'If the email exists, a reset link has been sent.' });
@@ -244,7 +244,7 @@ const forgotPassword = async function(req, res) {
   // Generate token and hash it
   const token = crypto.randomBytes(20).toString('hex');
   const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-  
+
   user.resetPasswordToken = hashedToken;
   user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
   await user.save();
@@ -256,7 +256,7 @@ const forgotPassword = async function(req, res) {
     email: "hello@app.mealprep.co.in",
     name: "Mealprep",
   };
-  
+
   client
     .send({
       from: sender,
@@ -313,6 +313,11 @@ const resetPassword = async (req, res) => {
   res.status(200).json({ message: 'Password updated successfully.' });
 };
 
+const getUserByMobileNumber = async (mobile) => {
+  const user = await User.findOne({ mobile });
+  return user.firstName;
+}
+
 
 module.exports = {
   createUser,
@@ -326,4 +331,5 @@ module.exports = {
   getAllUsersWithMealCounts,
   resetPassword,
   getUserByMobileNumberAndOtp,
+  getUserByMobileNumber,
 };
