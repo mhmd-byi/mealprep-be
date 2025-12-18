@@ -3,6 +3,7 @@ const Activity = require('../models/activityModel');
 const { default: axios } = require('axios');
 const { MailtrapClient } = require('mailtrap');
 const confirmMobileOtp = require('../models/confirmMobileOtp');
+const { getUserByMobileNumber } = require('./userController');
 require('dotenv').config();
 
 const createActivity = async (req, res) => {
@@ -72,7 +73,7 @@ const sendEmailMailTrap = async (req, res) => {
 };
 
 const sendMessageAiSensy = async (req, res) => {
-  const { mobileNumber, name } = req.body;
+  const { mobileNumber } = req.body;
   const generateOtp = Math.floor(100000 + Math.random() * 900000);
   const otp = generateOtp.toString();
   const saveOtp = new confirmMobileOtp({
@@ -80,6 +81,7 @@ const sendMessageAiSensy = async (req, res) => {
     otp
   })
   await saveOtp.save();
+  const getNameOfUser = await getUserByMobileNumber(mobileNumber);
   const sendMessage = await axios({
     method: 'POST',
     url: process.env.AISENSY_URL,
@@ -87,32 +89,32 @@ const sendMessageAiSensy = async (req, res) => {
       apiKey: process.env.AISENSY_API_KEY,
       campaignName: 'mobile_number_authentication',
       destination: mobileNumber,
-      userName: name,
+      userName: getNameOfUser,
       templateParams: [
         otp
       ],
       buttons: [
-    {
-      type: "button",
-      sub_type: "url",
-      index: 0,
-      parameters: [
         {
-          type: "text",
-          text: otp
+          type: "button",
+          sub_type: "url",
+          index: 0,
+          parameters: [
+            {
+              type: "text",
+              text: otp
+            }
+          ]
         }
-      ]
-    }
-  ],
+      ],
     },
   })
-  .then(response => {
-    res.json(response.data);
-  })
-  .catch(error => {
-    console.error('Message sending failed:', error);
-    res.status(500).json({ error: 'Failed to send message' });
-  });
+    .then(response => {
+      res.json(response.data);
+    })
+    .catch(error => {
+      console.error('Message sending failed:', error);
+      res.status(500).json({ error: 'Failed to send message' });
+    });
   return sendMessage;
 }
 
