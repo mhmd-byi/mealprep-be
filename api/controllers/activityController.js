@@ -73,7 +73,7 @@ const sendEmailMailTrap = async (req, res) => {
 };
 
 const sendMessageAiSensy = async (req, res) => {
-  const { mobileNumber } = req.body;
+  const { mobileNumber, name } = req.body;
   const generateOtp = Math.floor(100000 + Math.random() * 900000);
   const otp = generateOtp.toString();
   const saveOtp = new confirmMobileOtp({
@@ -89,7 +89,7 @@ const sendMessageAiSensy = async (req, res) => {
       apiKey: process.env.AISENSY_API_KEY,
       campaignName: 'mobile_number_authentication',
       destination: mobileNumber,
-      userName: getNameOfUser,
+      userName: name || getNameOfUser,
       templateParams: [
         otp
       ],
