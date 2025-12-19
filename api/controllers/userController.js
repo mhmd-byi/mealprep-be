@@ -315,7 +315,7 @@ const resetPassword = async (req, res) => {
 
 const getUserByMobileNumber = async (mobile) => {
   const user = await User.findOne({ mobile });
-  return user.firstName;
+  return user ? user.firstName : null;
 }
 
 

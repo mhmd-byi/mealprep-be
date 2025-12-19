@@ -1,6 +1,6 @@
 const User = require('../models/userModel');
 const Activity = require('../models/activityModel');
-const { default: axios } = require('axios');
+const axios = require('axios');
 const { MailtrapClient } = require('mailtrap');
 const confirmMobileOtp = require('../models/confirmMobileOtp');
 const { getUserByMobileNumber } = require('./userController');
@@ -73,50 +73,59 @@ const sendEmailMailTrap = async (req, res) => {
 };
 
 const sendMessageAiSensy = async (req, res) => {
-  const { mobileNumber, name } = req.body;
-  const generateOtp = Math.floor(100000 + Math.random() * 900000);
-  const otp = generateOtp.toString();
-  const saveOtp = new confirmMobileOtp({
-    mobileNumber,
-    otp
-  })
-  await saveOtp.save();
-  const getNameOfUser = await getUserByMobileNumber(mobileNumber);
-  const sendMessage = await axios({
-    method: 'POST',
-    url: process.env.AISENSY_URL,
-    data: {
-      apiKey: process.env.AISENSY_API_KEY,
-      campaignName: 'mobile_number_authentication',
-      destination: mobileNumber,
-      userName: name || getNameOfUser,
-      templateParams: [
-        otp
-      ],
-      buttons: [
-        {
-          type: "button",
-          sub_type: "url",
-          index: 0,
-          parameters: [
-            {
-              type: "text",
-              text: otp
-            }
-          ]
-        }
-      ],
-    },
-  })
-    .then(response => {
-      res.json(response.data);
-    })
-    .catch(error => {
-      console.error('Message sending failed:', error);
-      res.status(500).json({ error: 'Failed to send message' });
+  try {
+    const { mobileNumber, name } = req.body;
+    const generateOtp = Math.floor(100000 + Math.random() * 900000);
+    const otp = generateOtp.toString();
+    const saveOtp = new confirmMobileOtp({
+      mobileNumber,
+      otp
     });
-  return sendMessage;
-}
+    await saveOtp.save();
+
+    let userName = name;
+    if (!userName) {
+      userName = await getUserByMobileNumber(mobileNumber);
+    }
+
+    if (!process.env.AISENSY_URL || !process.env.AISENSY_API_KEY) {
+      console.error("Missing AISENSY configuration");
+      return res.status(500).json({ message: 'Server configuration error' });
+    }
+
+    const response = await axios({
+      method: 'POST',
+      url: process.env.AISENSY_URL,
+      data: {
+        apiKey: process.env.AISENSY_API_KEY,
+        campaignName: 'mobile_number_authentication',
+        destination: mobileNumber,
+        userName: userName || "User",
+        templateParams: [
+          otp
+        ],
+        buttons: [
+          {
+            type: "button",
+            sub_type: "url",
+            index: 0,
+            parameters: [
+              {
+                type: "text",
+                text: otp
+              }
+            ]
+          }
+        ],
+      },
+    });
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('Message sending failed:', error);
+    res.status(500).json({ message: 'Failed to send message', details: error.message });
+  }
+};
 
 const verifyOtp = async (req, res) => {
   const { mobile, otp } = req.body;
