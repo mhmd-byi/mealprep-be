@@ -48,7 +48,8 @@ const subscriptionSchema = new Schema(
     },
     paymentId: { type: String },
     orderId: { type: String },
-    mealStartDate: { type: String }
+    mealStartDate: { type: String },
+    allergy: { type: String, default: "" }
   },
   {
     timestamps: true
