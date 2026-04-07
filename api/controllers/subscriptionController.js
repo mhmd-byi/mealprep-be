@@ -366,7 +366,8 @@ const getCancelledMeals = async (req, res) => {
       name: `${users[index].firstName} ${users[index].lastName}`,
       startDate: meal.startDate,
       endDate: meal.endDate,
-      mealType: meal.mealType
+      mealType: meal.mealType,
+      createdAt: meal.createdAt
     }));
 
     res.json(formattedMeals);
