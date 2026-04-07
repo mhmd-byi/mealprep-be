@@ -431,6 +431,10 @@ const getUserForMealDelivery = async (req, res) => {
       mealType: subscription.mealType || '',
       carbType: subscription.carbType || '',
       plan: subscription.plan || '',
+      lunchMeals: subscription.lunchMeals || 0,
+      dinnerMeals: subscription.dinnerMeals || 0,
+      nextDayLunchMeals: subscription.nextDayLunchMeals || 0,
+      nextDayDinnerMeals: subscription.nextDayDinnerMeals || 0,
     }));
 
     res.json(userDeliveries);
