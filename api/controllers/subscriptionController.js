@@ -521,6 +521,49 @@ const verifyPayment = async (req, res) => {
   }
 };
 
+const getActiveSubscriptionCounts = async (req, res) => {
+  try {
+    const weeklyCount = await Subscription.countDocuments({
+      plan: 'Weekly Plan',
+      $expr: {
+        $gt: [
+          {
+            $add: [
+              { $ifNull: ['$lunchMeals', 0] },
+              { $ifNull: ['$dinnerMeals', 0] },
+              { $ifNull: ['$nextDayLunchMeals', 0] },
+              { $ifNull: ['$nextDayDinnerMeals', 0] }
+            ]
+          },
+          0
+        ]
+      }
+    });
+
+    const monthlyCount = await Subscription.countDocuments({
+      plan: 'Monthly Plan',
+      $expr: {
+        $gt: [
+          {
+            $add: [
+              { $ifNull: ['$lunchMeals', 0] },
+              { $ifNull: ['$dinnerMeals', 0] },
+              { $ifNull: ['$nextDayLunchMeals', 0] },
+              { $ifNull: ['$nextDayDinnerMeals', 0] }
+            ]
+          },
+          0
+        ]
+      }
+    });
+
+    res.json({ weeklyCount, monthlyCount });
+  } catch (error) {
+    console.error('Error getting active subscription counts:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createSubscription,
   getSubscriptionDetails,
@@ -528,5 +571,6 @@ module.exports = {
   getCancelledMeals,
   getUserForMealDelivery,
   createRazorpayOrder,
-  verifyPayment
+  verifyPayment,
+  getActiveSubscriptionCounts
 };
