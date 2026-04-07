@@ -185,16 +185,31 @@ const getAllUsersWithMealCounts = async (req, res) => {
 };
 
 // Get User By ID API
-const getUserById = function (req, res) {
-  User.findById(req.params.userId, function (err, user) {
-    if (err) {
-      res.send(err);
-    } else if (!user) {
-      res.status(404).send({ message: 'User not found with id ' + req.params.userId });
-    } else {
-      res.json(user);
+const getUserById = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId).lean();
+    if (!user) {
+      return res.status(404).send({ message: 'User not found with id ' + req.params.userId });
     }
-  });
+
+    const subscriptions = await Subscription.find({ userId: user._id }).exec();
+    const mealCounts = subscriptions.reduce((acc, curr) => {
+      acc.lunchMeals += curr.lunchMeals;
+      acc.dinnerMeals += curr.dinnerMeals;
+      acc.nextDayLunchMeals += curr.nextDayLunchMeals;
+      acc.nextDayDinnerMeals += curr.nextDayDinnerMeals;
+      return acc;
+    }, { lunchMeals: 0, dinnerMeals: 0, nextDayLunchMeals: 0, nextDayDinnerMeals: 0 });
+
+    res.json({
+      ...user,
+      mealCounts,
+      subscriptions,
+    });
+  } catch (err) {
+    console.error('Error fetching user by ID:', err);
+    res.status(500).send(err);
+  }
 };
 
 // Update User API
