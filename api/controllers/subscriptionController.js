@@ -408,9 +408,19 @@ const getUserForMealDelivery = async (req, res) => {
 
 
     const mealKey = mealType + 'Meals';
+    const nextDayMealKey = 'nextDay' + mealType.charAt(0).toUpperCase() + mealType.slice(1) + 'Meals';
+    
+    // Normalize dates to midnight for comparison
+    const deliveryDateMidnight = new Date(date);
+    deliveryDateMidnight.setHours(0, 0, 0, 0);
+
     const query = {
       userId: { $nin: cancelledUserIds },
-      [mealKey]: { $gt: 0 }
+      subscriptionStartDate: { $lte: deliveryDateMidnight },
+      $or: [
+        { [mealKey]: { $gt: 0 } },
+        { [nextDayMealKey]: { $gt: 0 } }
+      ]
     };
 
     const usersWithMeals = await Subscription.find(query)
