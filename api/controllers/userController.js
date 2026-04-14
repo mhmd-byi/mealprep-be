@@ -1,6 +1,7 @@
 const moment = require('moment');
 const User = require('../models/userModel');
 const Subscription = require('../models/subscriptionModel');
+const MealCancellation = require('../models/mealcancellation');
 const jwt = require('jsonwebtoken');
 const Token = require('../models/token');
 const bcrypt = require('bcrypt');
@@ -162,6 +163,7 @@ const getAllUsersWithMealCounts = async (req, res) => {
     const users = await User.find({ role: 'user' }).lean();
     const userMealCounts = await Promise.all(users.map(async (user) => {
       const subscriptions = await Subscription.find({ userId: user._id }).exec();
+      const cancellations = await MealCancellation.find({ userId: user._id }).exec();
       const mealCounts = subscriptions.reduce((acc, curr) => {
         acc.lunchMeals += curr.lunchMeals;
         acc.dinnerMeals += curr.dinnerMeals;
@@ -174,6 +176,7 @@ const getAllUsersWithMealCounts = async (req, res) => {
         ...user,
         mealCounts,
         subscriptions,
+        cancellations,
       };
     }));
 
