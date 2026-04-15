@@ -183,8 +183,11 @@ const createSubscription = async (req, res) => {
 const getSubscriptionDetails = async (req, res) => {
   try {
     const { userId } = req.params;
-    const subscriptionAll = await Subscription.find({ userId: userId });
-    const subscription = subscriptionAll[subscriptionAll.length - 1];
+    const subscriptionAll = await Subscription.find({ userId: userId }).sort({
+      createdAt: -1,
+      _id: -1
+    });
+    const subscription = subscriptionAll[0];
     
     if (!subscription) {
       return res.json({ isSubscribed: false });
@@ -199,16 +202,11 @@ const getSubscriptionDetails = async (req, res) => {
     const currentMeals = currentLunchMeals + currentDinnerMeals;
     const nextDayMeals = nextDayLunchMeals + nextDayDinnerMeals;
     const totalMeals = currentMeals + nextDayMeals;
-    
-    if (totalMeals <= 0) {
-      return res.json({ isSubscribed: false });
-    }
-    
+
     const response = {
-      isSubscribed: true,
+      isSubscribed: totalMeals > 0,
       subscription: {
         ...subscription.toObject(),
-        totalCurrentMeals: totalMeals,
         // Include all meal counts for transparency
         currentLunchMeals,
         currentDinnerMeals,
