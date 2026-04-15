@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "lint": "standard"
+    "lint": "standard",
+    "create:subscription": "node create_manual_subscription.js"
   },
   "author": "Build Your Innovation",
   "license": "MIT",
