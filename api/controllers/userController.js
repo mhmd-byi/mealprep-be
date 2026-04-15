@@ -160,9 +160,11 @@ const getAllUsers = async (req, res) => {
 
 const getAllUsersWithMealCounts = async (req, res) => {
   try {
+    const { plan } = req.query; // optional: 'Weekly' or 'Monthly'
+
     const users = await User.find({ role: 'user' }).lean();
     const userMealCounts = await Promise.all(users.map(async (user) => {
-      const subscriptions = await Subscription.find({ userId: user._id }).exec();
+      const subscriptions = await Subscription.find({ userId: user._id }).sort({ createdAt: 1, _id: 1 }).exec();
       const cancellations = await MealCancellation.find({ userId: user._id }).exec();
       const mealCounts = subscriptions.reduce((acc, curr) => {
         acc.lunchMeals += curr.lunchMeals;
@@ -180,10 +182,26 @@ const getAllUsersWithMealCounts = async (req, res) => {
       };
     }));
 
-    res.json(userMealCounts);
+    let result = userMealCounts;
+
+    if (plan) {
+      result = userMealCounts.filter(user => {
+        const latestSub = user.subscriptions.length > 0
+          ? user.subscriptions[user.subscriptions.length - 1]
+          : null;
+        const planMatch = latestSub?.plan?.includes(plan);
+        const totalMeals = (user.mealCounts.lunchMeals || 0) +
+          (user.mealCounts.dinnerMeals || 0) +
+          (user.mealCounts.nextDayLunchMeals || 0) +
+          (user.mealCounts.nextDayDinnerMeals || 0);
+        return planMatch && totalMeals > 0;
+      });
+    }
+
+    res.json(result);
   } catch (e) {
-    console.error('Error fetching users with meal counts:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    console.error('Error fetching users with meal counts:', e);
+    res.status(500).json({ message: 'Internal Server Error', error: e.message });
   }
 };
 
@@ -195,7 +213,7 @@ const getUserById = async (req, res) => {
       return res.status(404).send({ message: 'User not found with id ' + req.params.userId });
     }
 
-    const subscriptions = await Subscription.find({ userId: user._id }).exec();
+    const subscriptions = await Subscription.find({ userId: user._id }).sort({ createdAt: 1, _id: 1 }).exec();
     const mealCounts = subscriptions.reduce((acc, curr) => {
       acc.lunchMeals += curr.lunchMeals;
       acc.dinnerMeals += curr.dinnerMeals;
