@@ -6,7 +6,8 @@ const {
   getUserForMealDelivery,
   createRazorpayOrder,
   verifyPayment,
-  getActiveSubscriptionCounts
+  getActiveSubscriptionCounts,
+  handleRazorpayWebhook
 } = require('../controllers/subscriptionController');
 
 const subscriptionRoutes = function(app) {
