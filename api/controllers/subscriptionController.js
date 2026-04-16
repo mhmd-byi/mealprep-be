@@ -137,7 +137,7 @@ const createSubscription = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    const validPlans = ['Trial Meal Pack', 'Weekly Plan', 'Monthly Plan'];
+    const validPlans = ['Trial Meal Pack', 'Trial Meal Plan', 'Weekly Plan', 'Monthly Plan'];
     if (!validPlans.includes(plan)) {
       return res.status(400).json({ message: 'Invalid plan' });
     }
@@ -369,7 +369,8 @@ const getCancelledMeals = async (req, res) => {
       startDate: meal.startDate,
       endDate: meal.endDate,
       mealType: meal.mealType,
-      createdAt: meal.createdAt
+      createdAt: meal.createdAt,
+      mobile: users[index].mobile
     }));
 
     res.json(formattedMeals);
@@ -543,7 +544,7 @@ const verifyPayment = async (req, res) => {
 const getActiveSubscriptionCounts = async (req, res) => {
   try {
     const weeklyCount = await Subscription.countDocuments({
-      plan: 'Weekly Plan',
+      plan: { $regex: /Weekly/i },
       $expr: {
         $gt: [
           {
@@ -560,7 +561,7 @@ const getActiveSubscriptionCounts = async (req, res) => {
     });
 
     const monthlyCount = await Subscription.countDocuments({
-      plan: 'Monthly Plan',
+      plan: { $regex: /Monthly/i },
       $expr: {
         $gt: [
           {
@@ -576,7 +577,24 @@ const getActiveSubscriptionCounts = async (req, res) => {
       }
     });
 
-    res.json({ weeklyCount, monthlyCount });
+    const trialCount = await Subscription.countDocuments({
+      plan: 'Trial Meal Pack',
+      $expr: {
+        $gt: [
+          {
+            $add: [
+              { $ifNull: ['$lunchMeals', 0] },
+              { $ifNull: ['$dinnerMeals', 0] },
+              { $ifNull: ['$nextDayLunchMeals', 0] },
+              { $ifNull: ['$nextDayDinnerMeals', 0] }
+            ]
+          },
+          0
+        ]
+      }
+    });
+
+    res.json({ weeklyCount, monthlyCount, trialCount });
   } catch (error) {
     console.error('Error getting active subscription counts:', error);
     res.status(500).json({ message: error.message });

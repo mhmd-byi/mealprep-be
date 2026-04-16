@@ -60,6 +60,8 @@ const userSchema = new Schema({
     type: Date,
     default: ''
   }
+}, {
+  timestamps: true
 });
 
 // hash the password

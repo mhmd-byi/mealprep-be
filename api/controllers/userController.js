@@ -162,7 +162,7 @@ const getAllUsersWithMealCounts = async (req, res) => {
   try {
     const { plan } = req.query; // optional: 'Weekly' or 'Monthly'
 
-    const users = await User.find({ role: 'user' }).lean();
+    const users = await User.find({ role: 'user' }).sort({ createdAt: -1, _id: -1 }).lean();
     const userMealCounts = await Promise.all(users.map(async (user) => {
       const subscriptions = await Subscription.find({ userId: user._id }).sort({ createdAt: 1, _id: 1 }).exec();
       const cancellations = await MealCancellation.find({ userId: user._id }).exec();
@@ -189,7 +189,7 @@ const getAllUsersWithMealCounts = async (req, res) => {
         const latestSub = user.subscriptions.length > 0
           ? user.subscriptions[user.subscriptions.length - 1]
           : null;
-        const planMatch = latestSub?.plan?.includes(plan);
+        const planMatch = latestSub?.plan?.toLowerCase().includes(plan.toLowerCase());
         const totalMeals = (user.mealCounts.lunchMeals || 0) +
           (user.mealCounts.dinnerMeals || 0) +
           (user.mealCounts.nextDayLunchMeals || 0) +
