@@ -43,7 +43,13 @@ mongoose
   });
 
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(bodyParser.json());
+app.use(
+  bodyParser.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 
 app.get('/', (req, res) => {
   res.send('Hello');

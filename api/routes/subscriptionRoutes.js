@@ -19,6 +19,7 @@ const subscriptionRoutes = function(app) {
   app.route('/subscription/get-meal-delivery-details').get(getUserForMealDelivery);
   app.route('/subscription/create-order').post(createRazorpayOrder);
   app.route('/subscription/verify-payment').post(verifyPayment);
+  app.route('/subscription/webhook').post(handleRazorpayWebhook);
   app.route('/subscription/active-subscription-counts').get(getActiveSubscriptionCounts);
 };
 

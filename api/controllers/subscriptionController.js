@@ -495,26 +495,31 @@ const createRazorpayOrder = async (req, res) => {
 const verifyPayment = async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals, mealType, carbType, lunchDinner, mealStartDate, allergy } = req.body;
+    
+    console.log('Verifying payment for order:', razorpay_order_id);
+
     const shasum = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
     shasum.update(`${razorpay_order_id}|${razorpay_payment_id}`);
     const digest = shasum.digest('hex');
 
     if (digest !== razorpay_signature) {
+      console.error('Signature mismatch for order:', razorpay_order_id);
       return res.status(400).json({ message: 'Transaction not legit!' });
     }
     
     // Adjust meal counts based on current time and subscription start date
-    const mealAdjustment = adjustMealCountsForTime(meals, lunchDinner, new Date(startDate));
+    const mealCount = Number(meals);
+    const mealAdjustment = adjustMealCountsForTime(mealCount, lunchDinner, new Date(startDate));
 
     const subscription = new Subscription({
       userId,
-      subscriptionStartDate: mealStartDate,
+      subscriptionStartDate: mealStartDate || new Date(),
       plan,
       lunchMeals: mealAdjustment.lunchMeals,
       dinnerMeals: mealAdjustment.dinnerMeals,
       nextDayLunchMeals: mealAdjustment.nextDayLunchMeals,
       nextDayDinnerMeals: mealAdjustment.nextDayDinnerMeals,
-      totalMeals: meals,
+      totalMeals: mealCount,
       mealType: mealType,
       carbType: carbType,
       paymentId: razorpay_payment_id,
@@ -523,6 +528,7 @@ const verifyPayment = async (req, res) => {
     });
 
     const savedSubscription = await subscription.save();
+    console.log('Subscription saved successfully for order:', razorpay_order_id);
     
     // Include time adjustment information in response
     const response = {
@@ -601,6 +607,79 @@ const getActiveSubscriptionCounts = async (req, res) => {
   }
 };
 
+const handleRazorpayWebhook = async (req, res) => {
+  const secret = process.env.RAZORPAY_KEY_SECRET;
+  const signature = req.headers['x-razorpay-signature'];
+  const body = req.rawBody; // Use the raw buffer captured in server.js
+
+  const expectedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(body)
+    .digest('hex');
+
+  if (signature !== expectedSignature) {
+    console.error('Invalid Webhook Signature');
+    return res.status(400).send('Invalid signature');
+  }
+
+  const { event, payload } = req.body;
+
+  if (event === 'payment.captured') {
+    const payment = payload.payment.entity;
+    const orderId = payment.order_id;
+
+    // Check if subscription already exists for this orderId
+    const existingSub = await Subscription.findOne({ orderId });
+    if (existingSub) {
+      console.log(`Subscription for order ${orderId} already exists.`);
+      return res.status(200).send('Already processed');
+    }
+
+    // Recover subscription details from order notes
+    try {
+      const order = await razorpay.orders.fetch(orderId);
+      const notes = order.notes;
+
+      if (!notes || !notes.userId) {
+        console.error('No notes found for order:', orderId);
+        return res.status(200).send('No notes found');
+      }
+
+      const { userId, plan, meals, mealType, carbType, lunchDinner, mealStartDate, allergy } = notes;
+
+      // Adjust meal counts based on current time (using IST)
+      // Since webhooks can be slightly delayed, we use current time for adjustment
+      const mealAdjustment = adjustMealCountsForTime(Number(meals), lunchDinner, new Date());
+
+      const subscription = new Subscription({
+        userId,
+        subscriptionStartDate: mealStartDate,
+        plan,
+        lunchMeals: mealAdjustment.lunchMeals,
+        dinnerMeals: mealAdjustment.dinnerMeals,
+        nextDayLunchMeals: mealAdjustment.nextDayLunchMeals,
+        nextDayDinnerMeals: mealAdjustment.nextDayDinnerMeals,
+        totalMeals: Number(meals),
+        mealType: mealType,
+        carbType: carbType,
+        paymentId: payment.id,
+        orderId: orderId,
+        allergy: allergy || ""
+      });
+
+      await subscription.save();
+      console.log(`Successfully created subscription from webhook for user ${userId}, order ${orderId}`);
+      
+      // Optionally send notification emails here as well if needed
+    } catch (error) {
+      console.error('Error processing webhook payment:', error);
+      return res.status(500).send('Processing error');
+    }
+  }
+
+  res.status(200).send('Webhook received');
+};
+
 module.exports = {
   createSubscription,
   getSubscriptionDetails,
@@ -609,5 +688,6 @@ module.exports = {
   getUserForMealDelivery,
   createRazorpayOrder,
   verifyPayment,
-  getActiveSubscriptionCounts
+  getActiveSubscriptionCounts,
+  handleRazorpayWebhook
 };
