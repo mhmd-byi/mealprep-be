@@ -506,10 +506,17 @@ const verifyPayment = async (req, res) => {
       console.error('Signature mismatch for order:', razorpay_order_id);
       return res.status(400).json({ message: 'Transaction not legit!' });
     }
+
+    // Check if subscription already exists for this orderId
+    const existingSub = await Subscription.findOne({ orderId: razorpay_order_id });
+    if (existingSub) {
+      console.log(`Subscription for order ${razorpay_order_id} already exists, skipping creation.`);
+      return res.status(201).json(existingSub);
+    }
     
     // Adjust meal counts based on current time and subscription start date
     const mealCount = Number(meals);
-    const mealAdjustment = adjustMealCountsForTime(mealCount, lunchDinner, new Date(startDate));
+    const mealAdjustment = adjustMealCountsForTime(mealCount, lunchDinner, new Date(mealStartDate || startDate));
 
     const subscription = new Subscription({
       userId,
@@ -648,8 +655,8 @@ const handleRazorpayWebhook = async (req, res) => {
       const { userId, plan, meals, mealType, carbType, lunchDinner, mealStartDate, allergy } = notes;
 
       // Adjust meal counts based on current time (using IST)
-      // Since webhooks can be slightly delayed, we use current time for adjustment
-      const mealAdjustment = adjustMealCountsForTime(Number(meals), lunchDinner, new Date());
+      // Since webhooks can be slightly delayed, we use the intended meal start date for adjustment
+      const mealAdjustment = adjustMealCountsForTime(Number(meals), lunchDinner, new Date(mealStartDate || new Date()));
 
       const subscription = new Subscription({
         userId,
