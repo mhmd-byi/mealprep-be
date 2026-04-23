@@ -769,16 +769,48 @@ const cancelQueuedPlan = async (req, res) => {
       });
     }
 
-    sub.status = 'completed';
-    // Zero out meals so it is treated as exhausted
+    // Trigger Razorpay Refund
+    let refundInfo = null;
+    if (sub.paymentId) {
+      try {
+        // A full refund is initiated if no amount is specified
+        const refund = await razorpay.payments.refund(sub.paymentId, {
+          notes: {
+            reason: 'Queued plan cancelled by admin',
+            subscriptionId: sub._id.toString()
+          }
+        });
+        refundInfo = refund;
+        sub.refundId = refund.id;
+        console.log(`Refund initiated for payment ${sub.paymentId}: ${refund.id}`);
+      } catch (refundError) {
+        console.error('Razorpay refund failed:', refundError);
+        // Map common Razorpay errors
+        const errorMsg = refundError.error ? refundError.error.description : (refundError.description || refundError.message);
+        return res.status(500).json({ 
+          message: 'Failed to initiate Razorpay refund. Cancellation aborted.', 
+          error: errorMsg 
+        });
+      }
+    } else {
+      console.warn(`No paymentId found for queued subscription ${sub._id}. Proceeding with cancellation only.`);
+    }
+
+    // Soft delete / Update status
+    sub.status = 'cancelled';
+    // Zero out meals so it is treated as exhausted/invalid
     sub.lunchMeals = 0;
     sub.dinnerMeals = 0;
     sub.nextDayLunchMeals = 0;
     sub.nextDayDinnerMeals = 0;
     await sub.save();
 
-    console.log(`Admin cancelled queued subscription ${subscriptionId} for user ${sub.userId}`);
-    res.json({ message: 'Queued subscription cancelled successfully', subscription: sub });
+    console.log(`Admin cancelled and refunded queued subscription ${subscriptionId} for user ${sub.userId}`);
+    res.json({ 
+      message: 'Queued subscription cancelled and refund initiated successfully', 
+      subscription: sub,
+      refund: refundInfo
+    });
   } catch (error) {
     console.error('Error cancelling queued subscription:', error);
     res.status(500).json({ message: 'Internal Server Error', error: error.message });
