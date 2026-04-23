@@ -166,7 +166,11 @@ const getAllUsersWithMealCounts = async (req, res) => {
     const userMealCounts = await Promise.all(users.map(async (user) => {
       const subscriptions = await Subscription.find({ userId: user._id }).sort({ createdAt: 1, _id: 1 }).exec();
       const cancellations = await MealCancellation.find({ userId: user._id }).exec();
-      const mealCounts = subscriptions.reduce((acc, curr) => {
+
+      // Only active subscriptions contribute to the current meal balance.
+      // Queued subscriptions store raw (unadjusted) counts and must not be included.
+      const activeSubscriptions = subscriptions.filter(s => s.status === 'active');
+      const mealCounts = activeSubscriptions.reduce((acc, curr) => {
         acc.lunchMeals += curr.lunchMeals;
         acc.dinnerMeals += curr.dinnerMeals;
         acc.nextDayLunchMeals += curr.nextDayLunchMeals;
@@ -186,10 +190,12 @@ const getAllUsersWithMealCounts = async (req, res) => {
 
     if (plan) {
       result = userMealCounts.filter(user => {
-        const latestSub = user.subscriptions.length > 0
-          ? user.subscriptions[user.subscriptions.length - 1]
+        // Match against the latest ACTIVE subscription's plan name
+        const activeUserSubs = user.subscriptions.filter(s => s.status === 'active');
+        const latestActiveSub = activeUserSubs.length > 0
+          ? activeUserSubs[activeUserSubs.length - 1]
           : null;
-        const planMatch = latestSub?.plan?.toLowerCase().includes(plan.toLowerCase());
+        const planMatch = latestActiveSub?.plan?.toLowerCase().includes(plan.toLowerCase());
         const totalMeals = (user.mealCounts.lunchMeals || 0) +
           (user.mealCounts.dinnerMeals || 0) +
           (user.mealCounts.nextDayLunchMeals || 0) +
@@ -214,7 +220,9 @@ const getUserById = async (req, res) => {
     }
 
     const subscriptions = await Subscription.find({ userId: user._id }).sort({ createdAt: 1, _id: 1 }).exec();
-    const mealCounts = subscriptions.reduce((acc, curr) => {
+    // Only sum meal counts from the active subscription
+    const activeSubscriptions = subscriptions.filter(s => s.status === 'active');
+    const mealCounts = activeSubscriptions.reduce((acc, curr) => {
       acc.lunchMeals += curr.lunchMeals;
       acc.dinnerMeals += curr.dinnerMeals;
       acc.nextDayLunchMeals += curr.nextDayLunchMeals;
