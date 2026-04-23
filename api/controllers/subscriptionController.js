@@ -183,31 +183,32 @@ const createSubscription = async (req, res) => {
 const getSubscriptionDetails = async (req, res) => {
   try {
     const { userId } = req.params;
-    const subscriptionAll = await Subscription.find({ userId: userId }).sort({
-      createdAt: -1,
-      _id: -1
-    });
-    const subscription = subscriptionAll[0];
-    
-    if (!subscription) {
-      return res.json({ isSubscribed: false });
+
+    // Fetch the active plan (status = 'active')
+    const activeSub = await Subscription.findOne({ userId, status: 'active' }).sort({ createdAt: -1, _id: -1 });
+
+    // Fetch the queued plan (status = 'queued'), oldest first so the earliest-queued activates next
+    const queuedSub = await Subscription.findOne({ userId, status: 'queued' }).sort({ createdAt: 1, _id: 1 });
+
+    if (!activeSub) {
+      return res.json({ isSubscribed: false, currentPlan: null, nextPlan: queuedSub || null });
     }
-    
-    // Calculate meals including next-day meals
-    const currentLunchMeals = subscription.lunchMeals || 0;
-    const currentDinnerMeals = subscription.dinnerMeals || 0;
-    const nextDayLunchMeals = subscription.nextDayLunchMeals || 0;
-    const nextDayDinnerMeals = subscription.nextDayDinnerMeals || 0;
-    
+
+    // Calculate meals for the active plan
+    const currentLunchMeals = activeSub.lunchMeals || 0;
+    const currentDinnerMeals = activeSub.dinnerMeals || 0;
+    const nextDayLunchMeals = activeSub.nextDayLunchMeals || 0;
+    const nextDayDinnerMeals = activeSub.nextDayDinnerMeals || 0;
+
     const currentMeals = currentLunchMeals + currentDinnerMeals;
     const nextDayMeals = nextDayLunchMeals + nextDayDinnerMeals;
     const totalMeals = currentMeals + nextDayMeals;
 
     const response = {
       isSubscribed: totalMeals > 0,
+      // Keep 'subscription' key for backward compat with existing frontend code
       subscription: {
-        ...subscription.toObject(),
-        // Include all meal counts for transparency
+        ...activeSub.toObject(),
         currentLunchMeals,
         currentDinnerMeals,
         nextDayLunchMeals,
@@ -215,9 +216,21 @@ const getSubscriptionDetails = async (req, res) => {
         totalCurrentMeals: currentMeals,
         totalNextDayMeals: nextDayMeals,
         totalAvailableMeals: totalMeals
-      }
+      },
+      // Explicit currentPlan and nextPlan for new UI
+      currentPlan: {
+        ...activeSub.toObject(),
+        currentLunchMeals,
+        currentDinnerMeals,
+        nextDayLunchMeals,
+        nextDayDinnerMeals,
+        totalCurrentMeals: currentMeals,
+        totalNextDayMeals: nextDayMeals,
+        totalAvailableMeals: totalMeals
+      },
+      nextPlan: queuedSub ? queuedSub.toObject() : null
     };
-    
+
     res.json(response);
   } catch (error) {
     console.error('Error getting subscription details:', error);
@@ -420,6 +433,7 @@ const getUserForMealDelivery = async (req, res) => {
     const query = {
       userId: { $nin: cancelledUserIds },
       subscriptionStartDate: { $lte: deliveryDateMidnight },
+      status: 'active', // Only deliver meals for active subscriptions, never queued ones
       $or: [
         { [mealKey]: { $gt: 0 } },
         { [nextDayMealKey]: { $gt: 0 } }
@@ -495,7 +509,7 @@ const createRazorpayOrder = async (req, res) => {
 const verifyPayment = async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals, mealType, carbType, lunchDinner, mealStartDate, allergy } = req.body;
-    
+
     console.log('Verifying payment for order:', razorpay_order_id);
 
     const shasum = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
@@ -507,47 +521,77 @@ const verifyPayment = async (req, res) => {
       return res.status(400).json({ message: 'Transaction not legit!' });
     }
 
-    // Check if subscription already exists for this orderId
+    // Check if subscription already exists for this orderId (idempotency guard)
     const existingSub = await Subscription.findOne({ orderId: razorpay_order_id });
     if (existingSub) {
       console.log(`Subscription for order ${razorpay_order_id} already exists, skipping creation.`);
       return res.status(201).json(existingSub);
     }
-    
-    // Adjust meal counts based on current time and subscription start date
+
+    // Determine if user already has an active subscription with meals remaining
+    const existingActiveSub = await Subscription.findOne({ userId, status: 'active' });
+    const hasActiveMeals = existingActiveSub &&
+      ((existingActiveSub.lunchMeals || 0) + (existingActiveSub.dinnerMeals || 0) +
+       (existingActiveSub.nextDayLunchMeals || 0) + (existingActiveSub.nextDayDinnerMeals || 0)) > 0;
+
+    const newStatus = hasActiveMeals ? 'queued' : 'active';
+    console.log(`User ${userId} has active meals: ${hasActiveMeals}. Saving new subscription as '${newStatus}'.`);
+
     const mealCount = Number(meals);
-    const mealAdjustment = adjustMealCountsForTime(mealCount, lunchDinner, new Date(mealStartDate || startDate));
+
+    // For queued plans: do NOT adjust meal counts yet — they will be recalculated on activation day.
+    // For active plans: apply the normal time-based adjustment.
+    let lunchMeals = 0, dinnerMeals = 0, nextDayLunchMeals = 0, nextDayDinnerMeals = 0;
+    let timeAdjustment = { lunchTimePassed: false, dinnerTimePassed: false, adjustedForTime: false };
+
+    if (newStatus === 'active') {
+      const mealAdjustment = adjustMealCountsForTime(mealCount, lunchDinner, new Date(mealStartDate || startDate));
+      lunchMeals = mealAdjustment.lunchMeals;
+      dinnerMeals = mealAdjustment.dinnerMeals;
+      nextDayLunchMeals = mealAdjustment.nextDayLunchMeals;
+      nextDayDinnerMeals = mealAdjustment.nextDayDinnerMeals;
+      timeAdjustment = {
+        lunchTimePassed: mealAdjustment.lunchTimePassed,
+        dinnerTimePassed: mealAdjustment.dinnerTimePassed,
+        adjustedForTime: mealAdjustment.adjustedForTime
+      };
+    } else {
+      // Queued: store raw meal counts; the cron job will distribute them on activation
+      if (lunchDinner === 'lunch') {
+        lunchMeals = mealCount;
+      } else if (lunchDinner === 'dinner') {
+        dinnerMeals = mealCount;
+      } else {
+        lunchMeals = mealCount / 2;
+        dinnerMeals = mealCount / 2;
+      }
+    }
 
     const subscription = new Subscription({
       userId,
       subscriptionStartDate: mealStartDate || new Date(),
       plan,
-      lunchMeals: mealAdjustment.lunchMeals,
-      dinnerMeals: mealAdjustment.dinnerMeals,
-      nextDayLunchMeals: mealAdjustment.nextDayLunchMeals,
-      nextDayDinnerMeals: mealAdjustment.nextDayDinnerMeals,
+      lunchMeals,
+      dinnerMeals,
+      nextDayLunchMeals,
+      nextDayDinnerMeals,
       totalMeals: mealCount,
-      mealType: mealType,
-      carbType: carbType,
+      mealType,
+      carbType,
       paymentId: razorpay_payment_id,
       orderId: razorpay_order_id,
-      allergy: allergy || ""
+      allergy: allergy || '',
+      status: newStatus
     });
 
     const savedSubscription = await subscription.save();
-    console.log('Subscription saved successfully for order:', razorpay_order_id);
-    
-    // Include time adjustment information in response
-    const response = {
+    console.log(`Subscription saved as '${newStatus}' for order:`, razorpay_order_id);
+
+    res.status(201).json({
       ...savedSubscription.toObject(),
-      timeAdjustment: {
-        lunchTimePassed: mealAdjustment.lunchTimePassed,
-        dinnerTimePassed: mealAdjustment.dinnerTimePassed,
-        adjustedForTime: mealAdjustment.adjustedForTime
-      }
-    };
-    
-    res.status(201).json(response);
+      isQueued: newStatus === 'queued',
+      timeAdjustment
+    });
   } catch (error) {
     console.error('Error verifying payment:', error);
     res.status(500).json({ message: 'Error verifying payment' });
@@ -635,14 +679,13 @@ const handleRazorpayWebhook = async (req, res) => {
     const payment = payload.payment.entity;
     const orderId = payment.order_id;
 
-    // Check if subscription already exists for this orderId
+    // Idempotency: skip if already processed
     const existingSub = await Subscription.findOne({ orderId });
     if (existingSub) {
       console.log(`Subscription for order ${orderId} already exists.`);
       return res.status(200).send('Already processed');
     }
 
-    // Recover subscription details from order notes
     try {
       const order = await razorpay.orders.fetch(orderId);
       const notes = order.notes;
@@ -654,30 +697,54 @@ const handleRazorpayWebhook = async (req, res) => {
 
       const { userId, plan, meals, mealType, carbType, lunchDinner, mealStartDate, allergy } = notes;
 
-      // Adjust meal counts based on current time (using IST)
-      // Since webhooks can be slightly delayed, we use the intended meal start date for adjustment
-      const mealAdjustment = adjustMealCountsForTime(Number(meals), lunchDinner, new Date(mealStartDate || new Date()));
+      // Determine status: queued if the user already has an active sub with meals left
+      const existingActiveSub = await Subscription.findOne({ userId, status: 'active' });
+      const hasActiveMeals = existingActiveSub &&
+        ((existingActiveSub.lunchMeals || 0) + (existingActiveSub.dinnerMeals || 0) +
+         (existingActiveSub.nextDayLunchMeals || 0) + (existingActiveSub.nextDayDinnerMeals || 0)) > 0;
+
+      const newStatus = hasActiveMeals ? 'queued' : 'active';
+      const mealCount = Number(meals);
+
+      let lunchMeals = 0, dinnerMeals = 0, nextDayLunchMeals = 0, nextDayDinnerMeals = 0;
+
+      if (newStatus === 'active') {
+        const mealAdjustment = adjustMealCountsForTime(mealCount, lunchDinner, new Date(mealStartDate || new Date()));
+        lunchMeals = mealAdjustment.lunchMeals;
+        dinnerMeals = mealAdjustment.dinnerMeals;
+        nextDayLunchMeals = mealAdjustment.nextDayLunchMeals;
+        nextDayDinnerMeals = mealAdjustment.nextDayDinnerMeals;
+      } else {
+        // Queued: raw counts stored; activation cron will redistribute
+        if (lunchDinner === 'lunch') {
+          lunchMeals = mealCount;
+        } else if (lunchDinner === 'dinner') {
+          dinnerMeals = mealCount;
+        } else {
+          lunchMeals = mealCount / 2;
+          dinnerMeals = mealCount / 2;
+        }
+      }
 
       const subscription = new Subscription({
         userId,
         subscriptionStartDate: mealStartDate,
         plan,
-        lunchMeals: mealAdjustment.lunchMeals,
-        dinnerMeals: mealAdjustment.dinnerMeals,
-        nextDayLunchMeals: mealAdjustment.nextDayLunchMeals,
-        nextDayDinnerMeals: mealAdjustment.nextDayDinnerMeals,
-        totalMeals: Number(meals),
-        mealType: mealType,
-        carbType: carbType,
+        lunchMeals,
+        dinnerMeals,
+        nextDayLunchMeals,
+        nextDayDinnerMeals,
+        totalMeals: mealCount,
+        mealType,
+        carbType,
         paymentId: payment.id,
-        orderId: orderId,
-        allergy: allergy || ""
+        orderId,
+        allergy: allergy || '',
+        status: newStatus
       });
 
       await subscription.save();
-      console.log(`Successfully created subscription from webhook for user ${userId}, order ${orderId}`);
-      
-      // Optionally send notification emails here as well if needed
+      console.log(`Webhook: saved subscription as '${newStatus}' for user ${userId}, order ${orderId}`);
     } catch (error) {
       console.error('Error processing webhook payment:', error);
       return res.status(500).send('Processing error');
@@ -685,6 +752,37 @@ const handleRazorpayWebhook = async (req, res) => {
   }
 
   res.status(200).send('Webhook received');
+};
+
+// Admin: cancel a queued subscription (user cannot cancel their own queued plan)
+const cancelQueuedPlan = async (req, res) => {
+  try {
+    const { subscriptionId } = req.params;
+
+    const sub = await Subscription.findById(subscriptionId);
+    if (!sub) {
+      return res.status(404).json({ message: 'Subscription not found' });
+    }
+    if (sub.status !== 'queued') {
+      return res.status(400).json({
+        message: `Only queued subscriptions can be cancelled via this endpoint. Current status: '${sub.status}'`
+      });
+    }
+
+    sub.status = 'completed';
+    // Zero out meals so it is treated as exhausted
+    sub.lunchMeals = 0;
+    sub.dinnerMeals = 0;
+    sub.nextDayLunchMeals = 0;
+    sub.nextDayDinnerMeals = 0;
+    await sub.save();
+
+    console.log(`Admin cancelled queued subscription ${subscriptionId} for user ${sub.userId}`);
+    res.json({ message: 'Queued subscription cancelled successfully', subscription: sub });
+  } catch (error) {
+    console.error('Error cancelling queued subscription:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
 };
 
 module.exports = {
@@ -696,5 +794,6 @@ module.exports = {
   createRazorpayOrder,
   verifyPayment,
   getActiveSubscriptionCounts,
-  handleRazorpayWebhook
+  handleRazorpayWebhook,
+  cancelQueuedPlan
 };

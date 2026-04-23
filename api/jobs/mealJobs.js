@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const MealCancellation = require('../models/mealcancellation');
 const Subscription = require('../models/subscriptionModel');
 const Holiday = require('../models/holidayModel');
+const mongoose = require('mongoose');
 
 // Set timezone for cron jobs
 const TIMEZONE = 'Asia/Kolkata'; // UTC+05:30 (Indian Standard Time)
@@ -76,8 +77,10 @@ async function subtractMealBalance(mealType) {
   // 1. Exclude users with active cancellations
   // 2. Only include users whose subscription has started (subscriptionStartDate <= today)
   // 3. Only include users with meals remaining
+  // 4. Only touch ACTIVE subscriptions — never queued ones
   const query = {
     userId: { $nin: userIdsToExclude },
+    status: 'active',
     [updateField]: { $gt: 0 }
   };
 
@@ -134,6 +137,97 @@ async function subtractMealBalance(mealType) {
   });
 }
 
+/**
+ * After each meal deduction cycle, check if any active subscription has reached 0 meals.
+ * If so, mark it 'completed' and activate the oldest queued plan for that user.
+ * The activation applies adjustMealCountsForTime using the real activation time (today).
+ */
+async function activateNextQueuedPlan() {
+  try {
+    console.log('Checking for exhausted active subscriptions to activate queued plans...');
+
+    // Find all active subscriptions with no meals remaining
+    const exhausted = await Subscription.find({
+      status: 'active',
+      lunchMeals: 0,
+      dinnerMeals: 0,
+      nextDayLunchMeals: 0,
+      nextDayDinnerMeals: 0
+    });
+
+    if (exhausted.length === 0) {
+      console.log('No exhausted active subscriptions found.');
+      return;
+    }
+
+    // Get current time in IST for meal adjustment
+    const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: TIMEZONE }));
+    const currentHour = nowIST.getHours();
+    const currentMinutes = nowIST.getMinutes();
+    const currentTimeInMinutes = currentHour * 60 + currentMinutes;
+    const activationDateStr = nowIST.toISOString().split('T')[0];
+
+    for (const sub of exhausted) {
+      // Mark the exhausted plan as completed
+      await Subscription.findByIdAndUpdate(sub._id, { status: 'completed' });
+      console.log(`Marked subscription ${sub._id} as 'completed' for user ${sub.userId}`);
+
+      // Find the oldest queued plan for this user
+      const queuedSub = await Subscription.findOne({ userId: sub.userId, status: 'queued' }).sort({ createdAt: 1, _id: 1 });
+      if (!queuedSub) {
+        console.log(`No queued subscription found for user ${sub.userId}`);
+        continue;
+      }
+
+      // Re-distribute meal counts based on lunchDinner preference and current real time
+      // mealStartDate stored in queuedSub is the intended date; since it's activating NOW,
+      // use today's date as the effective start
+      const totalMeals = queuedSub.totalMeals || 0;
+      // Detect lunchDinner preference from stored raw counts
+      let lunchDinner = 'both';
+      const rawLunch = queuedSub.lunchMeals || 0;
+      const rawDinner = queuedSub.dinnerMeals || 0;
+      if (rawLunch > 0 && rawDinner === 0) lunchDinner = 'lunch';
+      else if (rawDinner > 0 && rawLunch === 0) lunchDinner = 'dinner';
+
+      // Determine meal split
+      let lunchMeals = rawLunch;
+      let dinnerMeals = rawDinner;
+      let nextDayLunchMeals = 0;
+      let nextDayDinnerMeals = 0;
+
+      const lunchTimePassed = currentTimeInMinutes > 10.5 * 60; // 10:30 AM
+      const dinnerTimePassed = currentTimeInMinutes > 16 * 60;  // 4:00 PM
+
+      // If lunch delivery has already happened today, move lunch to nextDay
+      if (lunchTimePassed && lunchMeals > 0) {
+        nextDayLunchMeals = lunchMeals;
+        lunchMeals = 0;
+        console.log(`Activation after 10:30 AM — moving ${nextDayLunchMeals} lunch meals to nextDay for user ${sub.userId}`);
+      }
+      // If dinner delivery has already happened today, move dinner to nextDay
+      if (dinnerTimePassed && dinnerMeals > 0) {
+        nextDayDinnerMeals = dinnerMeals;
+        dinnerMeals = 0;
+        console.log(`Activation after 4:00 PM — moving ${nextDayDinnerMeals} dinner meals to nextDay for user ${sub.userId}`);
+      }
+
+      await Subscription.findByIdAndUpdate(queuedSub._id, {
+        status: 'active',
+        subscriptionStartDate: new Date(activationDateStr),
+        lunchMeals,
+        dinnerMeals,
+        nextDayLunchMeals,
+        nextDayDinnerMeals
+      });
+
+      console.log(`Activated queued subscription ${queuedSub._id} (plan: ${queuedSub.plan}) for user ${sub.userId}`);
+    }
+  } catch (error) {
+    console.error('Error activating queued plans:', error);
+  }
+}
+
 // Function to transfer next-day meals to current day meals
 async function transferNextDayMeals() {
   console.log('Transferring next-day meals to current day meals...');
@@ -143,8 +237,9 @@ async function transferNextDayMeals() {
     const today = new Date();
     const currentDate = today.toISOString().split('T')[0];
 
-    // Find all subscriptions with next-day meals
+    // Find all active subscriptions with next-day meals
     const subscriptionsWithNextDayMeals = await Subscription.find({
+      status: 'active', // Never transfer meals on queued subscriptions
       $or: [
         { nextDayLunchMeals: { $gt: 0 } },
         { nextDayDinnerMeals: { $gt: 0 } }
@@ -209,8 +304,10 @@ cron.schedule('45 10 * * 1-6', async () => {
     console.log('Skipping lunch meal subtraction due to holiday');
     return;
   }
-  subtractMealBalance('lunch');
-  console.log(`Subtracted lunch balances at 10:45 AM IST`);
+  await subtractMealBalance('lunch');
+  // After deducting, activate any queued plans for users whose active plan just hit 0
+  await activateNextQueuedPlan();
+  console.log(`Subtracted lunch balances and checked queued plans at 10:45 AM IST`);
 }, {
   timezone: TIMEZONE
 });
@@ -221,8 +318,10 @@ cron.schedule('45 16 * * 1-6', async () => {
     console.log('Skipping dinner meal subtraction due to holiday');
     return;
   }
-  subtractMealBalance('dinner');
-  console.log(`Subtracted dinner balances at 4:45 PM IST`);
+  await subtractMealBalance('dinner');
+  // After deducting, activate any queued plans for users whose active plan just hit 0
+  await activateNextQueuedPlan();
+  console.log(`Subtracted dinner balances and checked queued plans at 4:45 PM IST`);
 }, {
   timezone: TIMEZONE
 });

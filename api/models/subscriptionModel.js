@@ -49,7 +49,13 @@ const subscriptionSchema = new Schema(
     paymentId: { type: String },
     orderId: { type: String },
     mealStartDate: { type: String },
-    allergy: { type: String, default: "" }
+    allergy: { type: String, default: "" },
+    // 'active' = currently delivering, 'queued' = waiting for current to finish, 'completed' = meals exhausted
+    status: {
+      type: String,
+      enum: ['active', 'queued', 'completed'],
+      default: 'active'
+    }
   },
   {
     timestamps: true
