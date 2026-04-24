@@ -160,50 +160,87 @@ const getAllUsers = async (req, res) => {
 
 const getAllUsersWithMealCounts = async (req, res) => {
   try {
-    const { plan } = req.query; // optional: 'Weekly' or 'Monthly'
+    const { plan, activeOnly } = req.query;
 
-    const users = await User.find({ role: 'user' }).sort({ createdAt: -1, _id: -1 }).lean();
-    const userMealCounts = await Promise.all(users.map(async (user) => {
-      const subscriptions = await Subscription.find({ userId: user._id }).sort({ createdAt: 1, _id: 1 }).exec();
-      const cancellations = await MealCancellation.find({ userId: user._id }).exec();
+    const pipeline = [
+      { $match: { role: 'user' } },
+      { $sort: { createdAt: -1, _id: -1 } },
+      // Join Subscriptions
+      {
+        $lookup: {
+          from: 'subscriptions',
+          localField: '_id',
+          foreignField: 'userId',
+          as: 'subscriptions'
+        }
+      },
+      // Join MealCancellations
+      {
+        $lookup: {
+          from: 'mealcancellations',
+          localField: '_id',
+          foreignField: 'userId',
+          as: 'cancellations'
+        }
+      },
+      // Calculate active meal counts and total meals in aggregation
+      {
+        $addFields: {
+          mealCounts: {
+            $reduce: {
+              input: {
+                $filter: {
+                  input: '$subscriptions',
+                  as: 'sub',
+                  cond: { $eq: ['$$sub.status', 'active'] }
+                }
+              },
+              initialValue: { lunchMeals: 0, dinnerMeals: 0, nextDayLunchMeals: 0, nextDayDinnerMeals: 0 },
+              in: {
+                lunchMeals: { $add: ['$$value.lunchMeals', { $ifNull: ['$$this.lunchMeals', 0] }] },
+                dinnerMeals: { $add: ['$$value.dinnerMeals', { $ifNull: ['$$this.dinnerMeals', 0] }] },
+                nextDayLunchMeals: { $add: ['$$value.nextDayLunchMeals', { $ifNull: ['$$this.nextDayLunchMeals', 0] }] },
+                nextDayDinnerMeals: { $add: ['$$value.nextDayDinnerMeals', { $ifNull: ['$$this.nextDayDinnerMeals', 0] }] }
+              }
+            }
+          }
+        }
+      },
+      {
+        $addFields: {
+          totalActiveMeals: {
+            $add: [
+              '$mealCounts.lunchMeals',
+              '$mealCounts.dinnerMeals',
+              '$mealCounts.nextDayLunchMeals',
+              '$mealCounts.nextDayDinnerMeals'
+            ]
+          }
+        }
+      }
+    ];
 
-      // Only active subscriptions contribute to the current meal balance.
-      // Queued subscriptions store raw (unadjusted) counts and must not be included.
-      const activeSubscriptions = subscriptions.filter(s => s.status === 'active');
-      const mealCounts = activeSubscriptions.reduce((acc, curr) => {
-        acc.lunchMeals += curr.lunchMeals;
-        acc.dinnerMeals += curr.dinnerMeals;
-        acc.nextDayLunchMeals += curr.nextDayLunchMeals;
-        acc.nextDayDinnerMeals += curr.nextDayDinnerMeals;
-        return acc;
-      }, { lunchMeals: 0, dinnerMeals: 0, nextDayLunchMeals: 0, nextDayDinnerMeals: 0 });
+    // Filter by Active Only if requested
+    if (activeOnly === 'true') {
+      pipeline.push({ $match: { totalActiveMeals: { $gt: 0 } } });
+    }
 
-      return {
-        ...user,
-        mealCounts,
-        subscriptions,
-        cancellations,
-      };
-    }));
-
-    let result = userMealCounts;
-
+    // Filter by Plan if requested
     if (plan) {
-      result = userMealCounts.filter(user => {
-        // Match against the latest ACTIVE subscription's plan name
-        const activeUserSubs = user.subscriptions.filter(s => s.status === 'active');
-        const latestActiveSub = activeUserSubs.length > 0
-          ? activeUserSubs[activeUserSubs.length - 1]
-          : null;
-        const planMatch = latestActiveSub?.plan?.toLowerCase().includes(plan.toLowerCase());
-        const totalMeals = (user.mealCounts.lunchMeals || 0) +
-          (user.mealCounts.dinnerMeals || 0) +
-          (user.mealCounts.nextDayLunchMeals || 0) +
-          (user.mealCounts.nextDayDinnerMeals || 0);
-        return planMatch && totalMeals > 0;
+      pipeline.push({
+        $match: {
+          subscriptions: {
+            $elemMatch: {
+              status: 'active',
+              plan: { $regex: plan, $options: 'i' }
+            }
+          },
+          totalActiveMeals: { $gt: 0 }
+        }
       });
     }
 
+    const result = await User.aggregate(pipeline);
     res.json(result);
   } catch (e) {
     console.error('Error fetching users with meal counts:', e);
