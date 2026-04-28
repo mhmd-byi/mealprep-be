@@ -19,8 +19,23 @@ const adjustMealCountsForTime = (meals, lunchDinner = 'both', subscriptionStartD
   const currentMinutes = nowIST.getMinutes();
   const currentTimeInMinutes = currentHour * 60 + currentMinutes;
 
-  // Get current date in YYYY-MM-DD format for comparison
-  const currentDate = nowIST.toISOString().split('T')[0];
+  // Get current date in IST (YYYY-MM-DD) — must NOT use .toISOString() here as that
+  // converts back to UTC, causing an off-by-one error around midnight IST.
+  const currentDateYear = nowIST.getFullYear();
+  const currentDateMonth = String(nowIST.getMonth() + 1).padStart(2, '0');
+  const currentDateDay = String(nowIST.getDate()).padStart(2, '0');
+  const currentDate = `${currentDateYear}-${currentDateMonth}-${currentDateDay}`;
+
+  // Parse the subscription start date as a local-date string (YYYY-MM-DD) to avoid UTC
+  // midnight shift. `new Date("YYYY-MM-DD")` is parsed as UTC, which would shift the
+  // date one day back in IST (UTC+5:30) at midnight.
+  const rawStartDate = subscriptionStartDate instanceof Date
+    ? subscriptionStartDate
+    : new Date(subscriptionStartDate);
+  const sdYear = rawStartDate.getUTCFullYear();
+  const sdMonth = String(rawStartDate.getUTCMonth() + 1).padStart(2, '0');
+  const sdDay = String(rawStartDate.getUTCDate()).padStart(2, '0');
+  const startDate = `${sdYear}-${sdMonth}-${sdDay}`;
 
   let lunchMeals = 0;
   let dinnerMeals = 0;
@@ -51,7 +66,6 @@ const adjustMealCountsForTime = (meals, lunchDinner = 'both', subscriptionStartD
     };
   }
 
-  const startDate = new Date(subscriptionStartDate).toISOString().split('T')[0];
   const subscriptionStartsToday = startDate === currentDate;
   const subscriptionStartsInFuture = startDate > currentDate;
 
