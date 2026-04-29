@@ -614,8 +614,8 @@ const verifyPayment = async (req, res) => {
 
 const getActiveSubscriptionCounts = async (req, res) => {
   try {
-    const weeklyCount = await Subscription.countDocuments({
-      plan: { $regex: /Weekly/i },
+    const activeSubscriptions = await Subscription.find({
+      status: 'active',
       $expr: {
         $gt: [
           {
@@ -629,39 +629,21 @@ const getActiveSubscriptionCounts = async (req, res) => {
           0
         ]
       }
-    });
+    }).populate('userId');
 
-    const monthlyCount = await Subscription.countDocuments({
-      plan: { $regex: /Monthly/i },
-      $expr: {
-        $gt: [
-          {
-            $add: [
-              { $ifNull: ['$lunchMeals', 0] },
-              { $ifNull: ['$dinnerMeals', 0] },
-              { $ifNull: ['$nextDayLunchMeals', 0] },
-              { $ifNull: ['$nextDayDinnerMeals', 0] }
-            ]
-          },
-          0
-        ]
-      }
-    });
+    let weeklyCount = 0;
+    let monthlyCount = 0;
+    let trialCount = 0;
 
-    const trialCount = await Subscription.countDocuments({
-      plan: 'Trial Meal Pack',
-      $expr: {
-        $gt: [
-          {
-            $add: [
-              { $ifNull: ['$lunchMeals', 0] },
-              { $ifNull: ['$dinnerMeals', 0] },
-              { $ifNull: ['$nextDayLunchMeals', 0] },
-              { $ifNull: ['$nextDayDinnerMeals', 0] }
-            ]
-          },
-          0
-        ]
+    activeSubscriptions.forEach(sub => {
+      if (sub.userId && sub.userId.role === 'user' && sub.plan) {
+        if (/Weekly/i.test(sub.plan)) {
+          weeklyCount++;
+        } else if (/Monthly/i.test(sub.plan)) {
+          monthlyCount++;
+        } else if (/Trial/i.test(sub.plan) || sub.plan === 'Trial Meal Pack') {
+          trialCount++;
+        }
       }
     });
 
