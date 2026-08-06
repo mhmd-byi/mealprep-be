@@ -304,32 +304,32 @@ const cancelMealRequest = async (req, res) => {
     else if (isStartDateToday) {
       if (mealType === 'both') {
         const errors = [];
-        
-        // Check lunch restriction (after 11 AM)
-        if (currentTimeInMinutes > 11 * 60) {
-          errors.push('Lunch cancellation for today must be done before 11:00 AM');
+
+        // Check lunch restriction (after 10:30 AM)
+        if (currentTimeInMinutes > 10.5 * 60) {
+          errors.push('Lunch cancellation for today must be done before 10:30 AM');
         }
-        
-        // Check dinner restriction (after 4:30 PM)
-        if (currentTimeInMinutes > 16 * 60 + 30) {
-          errors.push('Dinner cancellation for today must be done before 4:30 PM');
+
+        // Check dinner restriction (after 4:00 PM)
+        if (currentTimeInMinutes > 16 * 60) {
+          errors.push('Dinner cancellation for today must be done before 4:00 PM');
         }
 
         if (errors.length > 0) {
-          return res.status(400).json({ 
+          return res.status(400).json({
             message: 'Time restriction errors',
             errors: errors
           });
         }
-      } 
-      else if (mealType === 'lunch' && currentTimeInMinutes > 11 * 60) {
-        return res.status(400).json({ 
-          message: 'Lunch cancellation for today must be done before 11:00 AM' 
+      }
+      else if (mealType === 'lunch' && currentTimeInMinutes > 10.5 * 60) {
+        return res.status(400).json({
+          message: 'Lunch cancellation for today must be done before 10:30 AM'
         });
       }
-      else if (mealType === 'dinner' && currentTimeInMinutes > 16 * 60 + 30) {
-        return res.status(400).json({ 
-          message: 'Dinner cancellation for today must be done before 4:30 PM' 
+      else if (mealType === 'dinner' && currentTimeInMinutes > 16 * 60) {
+        return res.status(400).json({
+          message: 'Dinner cancellation for today must be done before 4:00 PM'
         });
       }
     }
