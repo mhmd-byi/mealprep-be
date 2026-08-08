@@ -18,6 +18,11 @@ const customiseMealRequestSchema = new Schema(
       type: Date,
       required: true
     },
+    mealType: {
+      type: String,
+      enum: ['lunch', 'dinner'],
+      required: true
+    },
     items: [mealItemSchema],
   },
   {

@@ -119,7 +119,35 @@ const customizeMealRequest = async (req, res) => {
     }
 
     if (decoded) {
-      const { userId, date, items } = req.body;
+      const { userId, date, mealType, items } = req.body;
+
+      if (!mealType || !['lunch', 'dinner'].includes(mealType)) {
+        return res.status(400).json({ message: 'mealType is required and must be either "lunch" or "dinner"' });
+      }
+
+      // Get current date/time in IST
+      const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const todayIST = new Date(nowIST);
+      todayIST.setHours(0, 0, 0, 0);
+      const currentTimeInMinutes = nowIST.getHours() * 60 + nowIST.getMinutes();
+
+      const requestedDate = new Date(date);
+      const requestedDate0Hour = new Date(requestedDate);
+      requestedDate0Hour.setHours(0, 0, 0, 0);
+
+      if (requestedDate0Hour < todayIST) {
+        return res.status(400).json({ message: 'Cannot submit a customisation request for a past date' });
+      }
+
+      if (requestedDate0Hour.getTime() === todayIST.getTime()) {
+        if (mealType === 'lunch' && currentTimeInMinutes > 10.5 * 60) {
+          return res.status(400).json({ message: 'Lunch customisation for today must be requested before 10:30 AM' });
+        }
+        if (mealType === 'dinner' && currentTimeInMinutes > 16 * 60) {
+          return res.status(400).json({ message: 'Dinner customisation for today must be requested before 4:00 PM' });
+        }
+      }
+
       const itemsArray = Object.keys(items).map(key => ({
         name: items[key].name,
         weight: items[key].weight,
@@ -128,6 +156,7 @@ const customizeMealRequest = async (req, res) => {
       const customisationRequest = new CustomiseMeal({
         userId,
         date,
+        mealType,
         items: itemsArray
       });
       const activityData = new Activity({
