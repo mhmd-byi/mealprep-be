@@ -8,37 +8,30 @@ const Activity = require('../models/activityModel');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
+const {
+  currentISTMinutesSinceMidnight,
+  todayCalendarDateUTC,
+  parseCalendarDate,
+  diffInCalendarDays,
+  addCalendarDays,
+  calendarDateKey,
+  calendarDayOfWeek,
+  istDayBoundsUTC
+} = require('../utils/dateUtils');
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET
 });
 
+// Lunch/dinner cutoff times, in minutes since IST midnight — shared by every
+// function below that gates on "before 10:30 AM" / "before 4:00 PM".
+const LUNCH_CUTOFF_MINUTES = 10.5 * 60; // 10:30 AM
+const DINNER_CUTOFF_MINUTES = 16 * 60; // 4:00 PM
+
 // Helper function to adjust meal counts based on current time and subscription start date
 const adjustMealCountsForTime = (meals, lunchDinner = 'both', subscriptionStartDate = null) => {
-  // Get current date and time in IST
-  const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-  const currentHour = nowIST.getHours();
-  const currentMinutes = nowIST.getMinutes();
-  const currentTimeInMinutes = currentHour * 60 + currentMinutes;
-
-  // Get current date in IST (YYYY-MM-DD) — must NOT use .toISOString() here as that
-  // converts back to UTC, causing an off-by-one error around midnight IST.
-  const currentDateYear = nowIST.getFullYear();
-  const currentDateMonth = String(nowIST.getMonth() + 1).padStart(2, '0');
-  const currentDateDay = String(nowIST.getDate()).padStart(2, '0');
-  const currentDate = `${currentDateYear}-${currentDateMonth}-${currentDateDay}`;
-
-  // Parse the subscription start date as a local-date string (YYYY-MM-DD) to avoid UTC
-  // midnight shift. `new Date("YYYY-MM-DD")` is parsed as UTC, which would shift the
-  // date one day back in IST (UTC+5:30) at midnight.
-  const rawStartDate = subscriptionStartDate instanceof Date
-    ? subscriptionStartDate
-    : new Date(subscriptionStartDate);
-  const sdYear = rawStartDate.getUTCFullYear();
-  const sdMonth = String(rawStartDate.getUTCMonth() + 1).padStart(2, '0');
-  const sdDay = String(rawStartDate.getUTCDate()).padStart(2, '0');
-  const startDate = `${sdYear}-${sdMonth}-${sdDay}`;
+  const currentTimeInMinutes = currentISTMinutesSinceMidnight();
 
   let lunchMeals = 0;
   let dinnerMeals = 0;
@@ -69,13 +62,14 @@ const adjustMealCountsForTime = (meals, lunchDinner = 'both', subscriptionStartD
     };
   }
 
-  const subscriptionStartsToday = startDate === currentDate;
-  const subscriptionStartsInFuture = startDate > currentDate;
+  const startDate = parseCalendarDate(subscriptionStartDate);
+  const today = todayCalendarDateUTC();
+  const dayDiff = diffInCalendarDays(startDate, today); // > 0 future, 0 today, < 0 past
 
   // CASE 1: If subscription start date is GREATER than current date (future date)
   // Move ALL meals to next day
-  if (subscriptionStartsInFuture) {
-    console.log(`Subscription starts in future (${startDate}), moving all meals to next day`);
+  if (dayDiff > 0) {
+    console.log(`Subscription starts in future (${calendarDateKey(startDate)}), moving all meals to next day`);
     return {
       lunchMeals: 0,
       dinnerMeals: 0,
@@ -90,28 +84,28 @@ const adjustMealCountsForTime = (meals, lunchDinner = 'both', subscriptionStartD
 
   // CASE 2: If subscription start date is SAME as current date
   // Apply time-based rules
-  if (subscriptionStartsToday) {
-    // Check if lunch time has passed (10:30 AM = 10.5 * 60 = 630 minutes)
-    const lunchTimePassed = currentTimeInMinutes > 10.5 * 60;
-    
-    // Check if dinner time has passed (4:00 PM = 16 * 60 = 960 minutes)
-    const dinnerTimePassed = currentTimeInMinutes > 16 * 60;
+  if (dayDiff === 0) {
+    // Check if lunch time has passed (10:30 AM)
+    const lunchTimePassed = currentTimeInMinutes > LUNCH_CUTOFF_MINUTES;
 
-    // If lunch time has passed (after 9 AM), move lunch meals to next day
+    // Check if dinner time has passed (4:00 PM)
+    const dinnerTimePassed = currentTimeInMinutes > DINNER_CUTOFF_MINUTES;
+
+    // If lunch time has passed, move lunch meals to next day
     if (lunchTimePassed && lunchMeals > 0) {
       nextDayLunchMeals = lunchMeals;
       lunchMeals = 0;
-      console.log(`Current time after 9 AM, moving ${nextDayLunchMeals} lunch meals to next day`);
+      console.log(`Current time after 10:30 AM, moving ${nextDayLunchMeals} lunch meals to next day`);
     }
 
-    // If dinner time has passed (after 4 PM), move dinner meals to next day
+    // If dinner time has passed, move dinner meals to next day
     if (dinnerTimePassed && dinnerMeals > 0) {
       nextDayDinnerMeals = dinnerMeals;
       dinnerMeals = 0;
-      console.log(`Current time after 4 PM, moving ${nextDayDinnerMeals} dinner meals to next day`);
+      console.log(`Current time after 4:00 PM, moving ${nextDayDinnerMeals} dinner meals to next day`);
     }
 
-    console.log(`Subscription starts today (${startDate}), time-based adjustment applied`);
+    console.log(`Subscription starts today (${calendarDateKey(startDate)}), time-based adjustment applied`);
     return {
       lunchMeals,
       dinnerMeals,
@@ -126,7 +120,7 @@ const adjustMealCountsForTime = (meals, lunchDinner = 'both', subscriptionStartD
 
   // CASE 3: If subscription started in the PAST
   // Keep meals in current day slots
-  console.log(`Subscription already started (${startDate}), keeping meals in current day`);
+  console.log(`Subscription already started (${calendarDateKey(startDate)}), keeping meals in current day`);
   return {
     lunchMeals,
     dinnerMeals,
@@ -159,7 +153,7 @@ const createSubscription = async (req, res) => {
       return res.status(400).json({ message: 'Invalid plan' });
     }
 
-    const subscriptionStartDate = new Date(startDate);
+    const subscriptionStartDate = parseCalendarDate(startDate);
 
     // Adjust meal counts based on current time and subscription start date
     const mealAdjustment = adjustMealCountsForTime(meals, 'both', subscriptionStartDate);
@@ -268,8 +262,8 @@ const cancelMealRequest = async (req, res) => {
     // Duplicate cancellation check
     const duplicate = await MealCancellation.findOne({
       userId,
-      startDate: new Date(startDate),
-      endDate: new Date(endDate),
+      startDate: parseCalendarDate(startDate),
+      endDate: parseCalendarDate(endDate),
       mealType
     });
     if (duplicate) {
@@ -278,43 +272,28 @@ const cancelMealRequest = async (req, res) => {
       });
     }
 
-    // Create dates in IST
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    
-    // Get current date and time in IST
-    const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    const todayIST = new Date(nowIST);
-    todayIST.setHours(0, 0, 0, 0);
+    const start = parseCalendarDate(startDate);
+    const end = parseCalendarDate(endDate);
+    const today = todayCalendarDateUTC();
+    const currentTimeInMinutes = currentISTMinutesSinceMidnight();
+    const dayDiff = diffInCalendarDays(start, today); // > 0 future, 0 today, < 0 past
 
-    // Convert current time to minutes (IST)
-    const currentHour = nowIST.getHours();
-    const currentMinutes = nowIST.getMinutes();
-    const currentTimeInMinutes = currentHour * 60 + currentMinutes;
-
-    // Format start date to compare with today
-    const startDate0Hour = new Date(start);
-    startDate0Hour.setHours(0, 0, 0, 0);
-
-    // Check if the start date is today
-    const isStartDateToday = startDate0Hour.getTime() === todayIST.getTime();
-    
     // If it's a future date, allow the cancellation
-    if (startDate0Hour > todayIST) {
+    if (dayDiff > 0) {
       // Process normally for future dates
-    } 
+    }
     // If it's today, apply time restrictions
-    else if (isStartDateToday) {
+    else if (dayDiff === 0) {
       if (mealType === 'both') {
         const errors = [];
 
         // Check lunch restriction (after 10:30 AM)
-        if (currentTimeInMinutes > 10.5 * 60) {
+        if (currentTimeInMinutes > LUNCH_CUTOFF_MINUTES) {
           errors.push('Lunch cancellation for today must be done before 10:30 AM');
         }
 
         // Check dinner restriction (after 4:00 PM)
-        if (currentTimeInMinutes > 16 * 60) {
+        if (currentTimeInMinutes > DINNER_CUTOFF_MINUTES) {
           errors.push('Dinner cancellation for today must be done before 4:00 PM');
         }
 
@@ -325,12 +304,12 @@ const cancelMealRequest = async (req, res) => {
           });
         }
       }
-      else if (mealType === 'lunch' && currentTimeInMinutes > 10.5 * 60) {
+      else if (mealType === 'lunch' && currentTimeInMinutes > LUNCH_CUTOFF_MINUTES) {
         return res.status(400).json({
           message: 'Lunch cancellation for today must be done before 10:30 AM'
         });
       }
-      else if (mealType === 'dinner' && currentTimeInMinutes > 16 * 60) {
+      else if (mealType === 'dinner' && currentTimeInMinutes > DINNER_CUTOFF_MINUTES) {
         return res.status(400).json({
           message: 'Dinner cancellation for today must be done before 4:00 PM'
         });
@@ -338,8 +317,8 @@ const cancelMealRequest = async (req, res) => {
     }
     // If it's a past date, reject the cancellation
     else {
-      return res.status(400).json({ 
-        message: 'Cannot cancel meals for past dates' 
+      return res.status(400).json({
+        message: 'Cannot cancel meals for past dates'
       });
     }
 
@@ -379,7 +358,7 @@ const getCancelledMeals = async (req, res) => {
       return res.status(400).json({ message: 'Missing required date.' });
     }
 
-    const queryDate = new Date(date);
+    const queryDate = parseCalendarDate(date);
 
     const cancelledMeals = await MealCancellation.find({
       startDate: { $lte: queryDate },
@@ -418,13 +397,13 @@ const getDeliveredMeals = async (req, res) => {
       return res.status(400).json({ message: 'Missing required date.' });
     }
 
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
+    // MealDelivery.date is a real timestamp (when the cron actually fired), not a
+    // calendar-day-only value, so this needs an explicit IST-day range rather than
+    // a point comparison.
+    const { start: dayStart, end: dayEnd } = istDayBoundsUTC(date);
 
     const deliveredMeals = await MealDelivery.find({
-      date: { $gte: startOfDay, $lte: endOfDay }
+      date: { $gte: dayStart, $lte: dayEnd }
     }).exec();
 
     if (deliveredMeals.length === 0) {
@@ -460,32 +439,7 @@ const DIET_LOCK_DAYS = 3;
 // runaway date range.
 const DIET_SCHEDULE_WINDOW_DAYS_CAP = 60;
 
-const getISTNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-
-const startOfDay = (date) => {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
-
-const addDays = (date, days) => {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-};
-
-// Local (not UTC) date parts — avoids the day drifting near the IST midnight boundary.
-const formatDateKey = (date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const isDateLocked = (date, todayStart) => {
-  const diffDays = Math.round((startOfDay(date) - todayStart) / (24 * 60 * 60 * 1000));
-  return diffDays < DIET_LOCK_DAYS;
-};
+const isDateLocked = (date, today) => diffInCalendarDays(date, today) < DIET_LOCK_DAYS;
 
 const getMealSchedule = async (req, res) => {
   try {
@@ -513,8 +467,8 @@ const getMealSchedule = async (req, res) => {
       DIET_SCHEDULE_WINDOW_DAYS_CAP
     );
 
-    const todayStart = startOfDay(getISTNow());
-    const subStart = startOfDay(activeSub.subscriptionStartDate);
+    const todayStart = todayCalendarDateUTC();
+    const subStart = parseCalendarDate(activeSub.subscriptionStartDate);
     // A plan bought today for a future start date has no deliveries before that
     // start date — the window (and lock check) must never begin earlier than it.
     const windowStart = subStart > todayStart ? subStart : todayStart;
@@ -522,23 +476,23 @@ const getMealSchedule = async (req, res) => {
     // window consume calendar days without producing a delivery day, so covering
     // `scheduleWindowDays` real days needs more than that many raw days.
     const rawSpanDays = scheduleWindowDays * 2;
-    const windowEnd = addDays(windowStart, rawSpanDays);
+    const windowEnd = addCalendarDays(windowStart, rawSpanDays);
 
     const holidays = await Holiday.find({ date: { $gte: windowStart, $lte: windowEnd } });
-    const holidayKeys = new Set(holidays.map(h => formatDateKey(h.date)));
+    const holidayKeys = new Set(holidays.map(h => calendarDateKey(h.date)));
 
     const prefRows = await MealDietaryPreference.find({
       userId,
       date: { $gte: windowStart, $lte: windowEnd }
     });
     const prefMap = new Map();
-    prefRows.forEach(r => prefMap.set(`${formatDateKey(r.date)}_${r.mealSlot}`, r.preference));
+    prefRows.forEach(r => prefMap.set(`${calendarDateKey(r.date)}_${r.mealSlot}`, r.preference));
 
     const days = [];
     for (let i = 0; i < rawSpanDays && days.length < scheduleWindowDays; i++) {
-      const date = addDays(windowStart, i);
-      if (date.getDay() === 0) continue; // no delivery on Sundays
-      const dateKey = formatDateKey(date);
+      const date = addCalendarDays(windowStart, i);
+      if (calendarDayOfWeek(date) === 0) continue; // no delivery on Sundays
+      const dateKey = calendarDateKey(date);
       if (holidayKeys.has(dateKey)) continue; // no delivery on holidays
 
       const dayEntry = { date: dateKey, locked: isDateLocked(date, todayStart) };
@@ -584,9 +538,9 @@ const updateMealSchedule = async (req, res) => {
       return res.status(400).json({ message: `This plan does not include ${mealSlot}.` });
     }
 
-    const requestedDate = startOfDay(new Date(date));
-    const todayStart = startOfDay(getISTNow());
-    const subStart = startOfDay(activeSub.subscriptionStartDate);
+    const requestedDate = parseCalendarDate(date);
+    const todayStart = todayCalendarDateUTC();
+    const subStart = parseCalendarDate(activeSub.subscriptionStartDate);
 
     if (requestedDate < todayStart) {
       return res.status(400).json({ message: 'Cannot set a preference for a past date.' });
@@ -615,17 +569,17 @@ const updateMealSchedule = async (req, res) => {
 
 const getDietaryStockReport = async (req, res) => {
   try {
-    const todayStart = startOfDay(getISTNow());
-    const windowEnd = addDays(todayStart, DIET_LOCK_DAYS - 1);
+    const todayStart = todayCalendarDateUTC();
+    const windowEnd = addCalendarDays(todayStart, DIET_LOCK_DAYS - 1);
 
     const holidays = await Holiday.find({ date: { $gte: todayStart, $lte: windowEnd } });
-    const holidayKeys = new Set(holidays.map(h => formatDateKey(h.date)));
+    const holidayKeys = new Set(holidays.map(h => calendarDateKey(h.date)));
 
     const reportDates = [];
     for (let i = 0; i < DIET_LOCK_DAYS; i++) {
-      const date = addDays(todayStart, i);
-      if (date.getDay() === 0) continue;
-      const dateKey = formatDateKey(date);
+      const date = addCalendarDays(todayStart, i);
+      if (calendarDayOfWeek(date) === 0) continue;
+      const dateKey = calendarDateKey(date);
       if (holidayKeys.has(dateKey)) continue;
       reportDates.push(date);
     }
@@ -638,7 +592,7 @@ const getDietaryStockReport = async (req, res) => {
     });
     const isCancelled = (userId, date, mealSlot) => cancellations.some(c =>
       c.userId.toString() === userId.toString() &&
-      startOfDay(c.startDate) <= date && startOfDay(c.endDate) >= date &&
+      parseCalendarDate(c.startDate) <= date && parseCalendarDate(c.endDate) >= date &&
       (c.mealType === mealSlot || c.mealType === 'both')
     );
 
@@ -648,7 +602,7 @@ const getDietaryStockReport = async (req, res) => {
       date: { $gte: todayStart, $lte: windowEnd }
     });
     const prefMap = new Map();
-    prefRows.forEach(r => prefMap.set(`${r.userId}_${formatDateKey(r.date)}_${r.mealSlot}`, r.preference));
+    prefRows.forEach(r => prefMap.set(`${r.userId}_${calendarDateKey(r.date)}_${r.mealSlot}`, r.preference));
 
     // Running remaining-meal projection per subscription across the report window —
     // a subscription that's about to run out shouldn't be counted on days past its last meal.
@@ -659,7 +613,7 @@ const getDietaryStockReport = async (req, res) => {
     }));
 
     const report = reportDates.map(date => {
-      const dateKey = formatDateKey(date);
+      const dateKey = calendarDateKey(date);
       const counts = {
         date: dateKey,
         lunch: { veg: 0, nonVeg: 0 },
@@ -667,7 +621,7 @@ const getDietaryStockReport = async (req, res) => {
       };
 
       for (const sub of activeSubs) {
-        if (startOfDay(sub.subscriptionStartDate) > date) continue;
+        if (parseCalendarDate(sub.subscriptionStartDate) > date) continue;
 
         const subRemaining = remaining.get(sub._id.toString());
         const resolvePreference = (mealSlot) => {
@@ -711,7 +665,11 @@ const getUserForMealDelivery = async (req, res) => {
       return res.status(400).json({ message: 'Valid meal type is required (lunch or dinner).' });
     }
 
-    const deliveryDate = new Date(date);
+    // "YYYY-MM-DD" parsed to UTC midnight — the same calendar-day convention used
+    // for every calendar-day-only field in this app (subscriptionStartDate,
+    // MealCancellation dates, MealDietaryPreference.date), so it compares directly
+    // against all of them with no further normalization.
+    const deliveryDate = parseCalendarDate(date);
 
     // Find all cancellations for this date and mealType (including 'both')
     const cancellations = await MealCancellation.find({
@@ -724,7 +682,7 @@ const getUserForMealDelivery = async (req, res) => {
     }).exec();
 
     // Ensure all IDs are ObjectId type
-    const cancelledUserIds = cancellations.map(c => 
+    const cancelledUserIds = cancellations.map(c =>
       typeof c.userId === 'string' ? mongoose.Types.ObjectId(c.userId) : c.userId
     );
 
@@ -732,13 +690,6 @@ const getUserForMealDelivery = async (req, res) => {
     const mealKey = mealType + 'Meals';
     const nextDayMealKey = 'nextDay' + mealType.charAt(0).toUpperCase() + mealType.slice(1) + 'Meals';
 
-    // `deliveryDate` (a plain new Date("YYYY-MM-DD")) is already UTC midnight of that
-    // calendar day, matching how subscriptionStartDate is stored (also a raw
-    // new Date("YYYY-MM-DD") — see verifyPayment/handleRazorpayWebhook/
-    // activateNextQueuedPlan). Calling .setHours(0,0,0,0) on it here previously
-    // re-normalized using the SERVER's local timezone (IST, UTC+5:30), shifting it
-    // back ~5.5 hours and making a subscription starting "today" fail this $lte
-    // check on its actual start date — it only appeared the following day.
     const query = {
       userId: { $nin: cancelledUserIds },
       subscriptionStartDate: { $lte: deliveryDate },
@@ -754,7 +705,7 @@ const getUserForMealDelivery = async (req, res) => {
       .exec();
 
     // Filter users to only include those with role 'user'
-    const filteredUsersWithMeals = usersWithMeals.filter(subscription => 
+    const filteredUsersWithMeals = usersWithMeals.filter(subscription =>
       subscription.userId && subscription.userId.role === 'user'
     );
 
@@ -765,11 +716,7 @@ const getUserForMealDelivery = async (req, res) => {
       .map(s => s.userId._id);
     const prefRows = await MealDietaryPreference.find({
       userId: { $in: bothUserIds },
-      // MealDietaryPreference.date is stored via startOfDay() (local-midnight
-      // normalized, see updateMealSchedule) — a different convention from
-      // subscriptionStartDate's raw UTC-midnight, so it needs its own normalization
-      // here rather than reusing `deliveryDate` directly.
-      date: startOfDay(deliveryDate),
+      date: deliveryDate,
       mealSlot: mealType
     });
     const prefMap = new Map();
@@ -874,7 +821,7 @@ const verifyPayment = async (req, res) => {
     let timeAdjustment = { lunchTimePassed: false, dinnerTimePassed: false, adjustedForTime: false };
 
     if (newStatus === 'active') {
-      const mealAdjustment = adjustMealCountsForTime(mealCount, lunchDinner, new Date(mealStartDate || startDate));
+      const mealAdjustment = adjustMealCountsForTime(mealCount, lunchDinner, parseCalendarDate(mealStartDate || startDate));
       lunchMeals = mealAdjustment.lunchMeals;
       dinnerMeals = mealAdjustment.dinnerMeals;
       nextDayLunchMeals = mealAdjustment.nextDayLunchMeals;
@@ -898,7 +845,7 @@ const verifyPayment = async (req, res) => {
 
     const subscription = new Subscription({
       userId,
-      subscriptionStartDate: mealStartDate || new Date(),
+      subscriptionStartDate: mealStartDate ? parseCalendarDate(mealStartDate) : new Date(),
       plan,
       lunchMeals,
       dinnerMeals,
@@ -1020,7 +967,7 @@ const handleRazorpayWebhook = async (req, res) => {
       let lunchMeals = 0, dinnerMeals = 0, nextDayLunchMeals = 0, nextDayDinnerMeals = 0;
 
       if (newStatus === 'active') {
-        const mealAdjustment = adjustMealCountsForTime(mealCount, lunchDinner, new Date(mealStartDate || new Date()));
+        const mealAdjustment = adjustMealCountsForTime(mealCount, lunchDinner, mealStartDate ? parseCalendarDate(mealStartDate) : new Date());
         lunchMeals = mealAdjustment.lunchMeals;
         dinnerMeals = mealAdjustment.dinnerMeals;
         nextDayLunchMeals = mealAdjustment.nextDayLunchMeals;
@@ -1039,7 +986,7 @@ const handleRazorpayWebhook = async (req, res) => {
 
       const subscription = new Subscription({
         userId,
-        subscriptionStartDate: mealStartDate,
+        subscriptionStartDate: mealStartDate ? parseCalendarDate(mealStartDate) : undefined,
         plan,
         lunchMeals,
         dinnerMeals,

@@ -3,7 +3,16 @@ const User = require('../models/userModel');
 const Meal = require('../models/mealModel');
 const CustomiseMeal = require('../models/customiseMealModel');
 const Activity = require('../models/activityModel');
+const {
+  currentISTMinutesSinceMidnight,
+  todayCalendarDateUTC,
+  parseCalendarDate,
+  calendarDateRangeUTC
+} = require('../utils/dateUtils');
 require('dotenv').config();
+
+const LUNCH_CUTOFF_MINUTES = 10.5 * 60; // 10:30 AM
+const DINNER_CUTOFF_MINUTES = 16 * 60; // 4:00 PM
 
 // Add meal Api
 const createMeal = async (req, res) => {
@@ -31,13 +40,10 @@ const createMeal = async (req, res) => {
       return res.status(400).json({ message: 'Missing required fields' });
     }
 
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
+    const { start: dayStart, end: dayEnd } = calendarDateRangeUTC(date);
     let existingMeal = await Meal.findOne({
       userId,
-      date: { $gte: startOfDay, $lte: endOfDay },
+      date: { $gte: dayStart, $lte: dayEnd },
       mealType: mealType,
     });
 
@@ -85,12 +91,9 @@ const getMeal = async (req, res) => {
         return res.status(400).json({ message: 'Date parameter is required' });
       }
 
-      const startOfDay = new Date(date);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
+      const { start: dayStart, end: dayEnd } = calendarDateRangeUTC(date);
       const meals = await Meal.find({
-        date: { $gte: startOfDay, $lte: endOfDay },
+        date: { $gte: dayStart, $lte: dayEnd },
         mealType: mealType,
       });
 
@@ -125,25 +128,19 @@ const customizeMealRequest = async (req, res) => {
         return res.status(400).json({ message: 'mealType is required and must be either "lunch" or "dinner"' });
       }
 
-      // Get current date/time in IST
-      const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-      const todayIST = new Date(nowIST);
-      todayIST.setHours(0, 0, 0, 0);
-      const currentTimeInMinutes = nowIST.getHours() * 60 + nowIST.getMinutes();
-
-      const requestedDate = new Date(date);
-      const requestedDate0Hour = new Date(requestedDate);
-      requestedDate0Hour.setHours(0, 0, 0, 0);
+      const todayIST = todayCalendarDateUTC();
+      const currentTimeInMinutes = currentISTMinutesSinceMidnight();
+      const requestedDate0Hour = parseCalendarDate(date);
 
       if (requestedDate0Hour < todayIST) {
         return res.status(400).json({ message: 'Cannot submit a customisation request for a past date' });
       }
 
       if (requestedDate0Hour.getTime() === todayIST.getTime()) {
-        if (mealType === 'lunch' && currentTimeInMinutes > 10.5 * 60) {
+        if (mealType === 'lunch' && currentTimeInMinutes > LUNCH_CUTOFF_MINUTES) {
           return res.status(400).json({ message: 'Lunch customisation for today must be requested before 10:30 AM' });
         }
-        if (mealType === 'dinner' && currentTimeInMinutes > 16 * 60) {
+        if (mealType === 'dinner' && currentTimeInMinutes > DINNER_CUTOFF_MINUTES) {
           return res.status(400).json({ message: 'Dinner customisation for today must be requested before 4:00 PM' });
         }
       }
@@ -193,14 +190,11 @@ const getCustomisedMealRequests = async (req, res) => {
       if (!date) {
         return res.status(400).json({ message: 'Date parameter is required' });
       }
-      const startOfDay = new Date(date);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
+      const { start: dayStart, end: dayEnd } = calendarDateRangeUTC(date);
 
       // Fetch meals within the given date range
       const meals = await CustomiseMeal.find({
-        date: { $gte: startOfDay, $lte: endOfDay }
+        date: { $gte: dayStart, $lte: dayEnd }
       });
 
       // Extract user IDs from the meals
@@ -256,17 +250,14 @@ const updateOrCreateMealWithImages = async (req, res) => {
     return res.status(400).json({ message: 'Missing required fields: date, imageUrls, and userId are required.' });
   }
   try {
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
+    const { start: dayStart, end: dayEnd } = calendarDateRangeUTC(date);
 
     const update = {
       $setOnInsert: { userId, date, mealType: 'Default', items: [] },
       $addToSet: { imageUrls: { $each: imageUrls } } // Adds unique URLs
     };
     const options = { upsert: true, new: true };
-    const meal = await Meal.findOneAndUpdate({ userId, date: { $gte: startOfDay, $lte: endOfDay } }, update, options);
+    const meal = await Meal.findOneAndUpdate({ userId, date: { $gte: dayStart, $lte: dayEnd } }, update, options);
 
     res.json({ message: 'Meal images updated successfully', meal });
   } catch (error) {
@@ -283,13 +274,10 @@ const fetchMenuImages = async (req, res) => {
       return res.status(400).json({ message: 'Date parameter is required' });
     }
 
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
+    const { start: dayStart, end: dayEnd } = calendarDateRangeUTC(date);
 
     const meals = await Meal.find({
-      date: { $gte: startOfDay, $lte: endOfDay }
+      date: { $gte: dayStart, $lte: dayEnd }
     });
 
     const imageUrls = meals.reduce((acc, meal) => {
@@ -313,13 +301,10 @@ const deleteAnImage = async (req, res) => {
       return res.status(400).json({ message: 'Date parameter is required' });
     }
 
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
+    const { start: dayStart, end: dayEnd } = calendarDateRangeUTC(date);
 
     const mealForDeleteImage = await Meal.find({
-      date: { $gte: startOfDay, $lte: endOfDay },
+      date: { $gte: dayStart, $lte: dayEnd },
       imageUrls: { $gte: 1 },
     });
     if (!mealForDeleteImage) {
