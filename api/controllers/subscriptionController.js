@@ -731,14 +731,17 @@ const getUserForMealDelivery = async (req, res) => {
 
     const mealKey = mealType + 'Meals';
     const nextDayMealKey = 'nextDay' + mealType.charAt(0).toUpperCase() + mealType.slice(1) + 'Meals';
-    
-    // Normalize dates to midnight for comparison
-    const deliveryDateMidnight = new Date(date);
-    deliveryDateMidnight.setHours(0, 0, 0, 0);
 
+    // `deliveryDate` (a plain new Date("YYYY-MM-DD")) is already UTC midnight of that
+    // calendar day, matching how subscriptionStartDate is stored (also a raw
+    // new Date("YYYY-MM-DD") — see verifyPayment/handleRazorpayWebhook/
+    // activateNextQueuedPlan). Calling .setHours(0,0,0,0) on it here previously
+    // re-normalized using the SERVER's local timezone (IST, UTC+5:30), shifting it
+    // back ~5.5 hours and making a subscription starting "today" fail this $lte
+    // check on its actual start date — it only appeared the following day.
     const query = {
       userId: { $nin: cancelledUserIds },
-      subscriptionStartDate: { $lte: deliveryDateMidnight },
+      subscriptionStartDate: { $lte: deliveryDate },
       status: 'active', // Only deliver meals for active subscriptions, never queued ones
       $or: [
         { [mealKey]: { $gt: 0 } },
@@ -762,7 +765,11 @@ const getUserForMealDelivery = async (req, res) => {
       .map(s => s.userId._id);
     const prefRows = await MealDietaryPreference.find({
       userId: { $in: bothUserIds },
-      date: deliveryDateMidnight,
+      // MealDietaryPreference.date is stored via startOfDay() (local-midnight
+      // normalized, see updateMealSchedule) — a different convention from
+      // subscriptionStartDate's raw UTC-midnight, so it needs its own normalization
+      // here rather than reusing `deliveryDate` directly.
+      date: startOfDay(deliveryDate),
       mealSlot: mealType
     });
     const prefMap = new Map();

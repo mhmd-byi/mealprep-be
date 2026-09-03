@@ -18,6 +18,7 @@ const mealRoutes = require('./api/routes/mealRoutes');
 const subscriptionRoutes = require('./api/routes/subscriptionRoutes');
 const activityRoutes = require('./api/routes/activityRoutes');
 const holidayRoutes = require('./api/routes/holidayRoutes');
+const expenseRoutes = require('./api/routes/expenseRoutes');
 
 const corsOptions = {
   origin: '*', // Adjust this to match the domain you want to allow
@@ -61,6 +62,7 @@ mealRoutes.mealRoutes(app); // register meal routes
 subscriptionRoutes.subscriptionRoutes(app); // register subscription routes
 activityRoutes.activityRoutes(app); // register activity routes
 holidayRoutes.holidayRoutes(app); // register holiday routes
+expenseRoutes.expenseRoutes(app); // register expense routes
 
 app.listen(port, () => {
   console.log('Node.js + MongoDB RESTful API server started on: ' + port);
