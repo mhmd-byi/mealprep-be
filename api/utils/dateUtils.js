@@ -37,11 +37,10 @@ const todayCalendarDateUTC = () => {
     { zone: 'utc' }
   ).toJSDate();
 };
-
-// Parses a "YYYY-MM-DD" string, a Date, or anything else `new Date()` accepts
-// into that same UTC-midnight calendar-day convention — strips any stray
-// time-of-day component so callers never need their own .setHours(0,0,0,0).
 const parseCalendarDate = (input) => {
+  if (input === null || input === undefined) {
+    return new Date(NaN);
+  }
   let dt;
   if (input instanceof Date) {
     dt = DateTime.fromJSDate(input, { zone: 'utc' });
@@ -49,6 +48,9 @@ const parseCalendarDate = (input) => {
     dt = DateTime.fromISO(input, { zone: 'utc' });
   } else {
     dt = DateTime.fromJSDate(new Date(input), { zone: 'utc' });
+  }
+  if (!dt.isValid) {
+    return new Date(NaN);
   }
   return DateTime.fromObject({ year: dt.year, month: dt.month, day: dt.day }, { zone: 'utc' }).toJSDate();
 };

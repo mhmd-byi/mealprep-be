@@ -72,6 +72,10 @@ async function subtractMealBalance(mealType) {
   const userIdsToExclude = [];
 
   for (const cancellation of allCancellations) {
+    if (!cancellation.startDate || !cancellation.endDate) {
+      console.warn(`Skipping cancellation ${cancellation._id} — missing startDate/endDate`);
+      continue;
+    }
     const startDate = parseCalendarDate(cancellation.startDate);
     const endDate = parseCalendarDate(cancellation.endDate);
     // Check if today's date falls within the cancellation period
