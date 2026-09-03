@@ -5,22 +5,30 @@ const Holiday = require('../models/holidayModel');
 const MealDelivery = require('../models/mealDeliveryModel');
 const Activity = require('../models/activityModel');
 const mongoose = require('mongoose');
+const {
+  IST_ZONE,
+  nowIST,
+  currentISTMinutesSinceMidnight,
+  todayCalendarDateUTC,
+  parseCalendarDate,
+  calendarDateKey,
+  calendarDateRangeUTC
+} = require('../utils/dateUtils');
 
 // Set timezone for cron jobs
-const TIMEZONE = 'Asia/Kolkata'; // UTC+05:30 (Indian Standard Time)
+const TIMEZONE = IST_ZONE; // UTC+05:30 (Indian Standard Time)
+const LUNCH_CUTOFF_MINUTES = 10.5 * 60; // 10:30 AM
+const DINNER_CUTOFF_MINUTES = 16 * 60; // 4:00 PM
 
 // Function to check if today is a holiday
 async function isHoliday() {
   try {
     // Get current date in IST directly to ensure we align with business days
-    const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: TIMEZONE }));
-    const todayDate = nowIST.toISOString().split('T')[0];
+    const today = todayCalendarDateUTC();
+    const { start: todayStartUTC, end: todayEndUTC } = calendarDateRangeUTC(today);
+    const todayKey = calendarDateKey(today);
 
-    // Construct UTC query range for the entire day (00:00:00 to 23:59:59)
-    const todayStartUTC = new Date(todayDate + 'T00:00:00.000Z');
-    const todayEndUTC = new Date(todayDate + 'T23:59:59.999Z');
-
-    console.log(`Checking for holiday on ${todayDate} (Query: ${todayStartUTC.toISOString()} - ${todayEndUTC.toISOString()})`);
+    console.log(`Checking for holiday on ${todayKey} (Query: ${todayStartUTC.toISOString()} - ${todayEndUTC.toISOString()})`);
 
     const holiday = await Holiday.findOne({
       date: {
@@ -30,11 +38,11 @@ async function isHoliday() {
     });
 
     if (holiday) {
-      console.log(`Today (${todayDate}) is a holiday: ${holiday.description}`);
+      console.log(`Today (${todayKey}) is a holiday: ${holiday.description}`);
       return true;
     }
 
-    console.log(`No holiday found for ${todayDate}`);
+    console.log(`No holiday found for ${todayKey}`);
     return false;
   } catch (error) {
     console.error('CRITICAL ERROR checking holiday status:', error);
@@ -46,9 +54,11 @@ async function isHoliday() {
 }
 
 async function subtractMealBalance(mealType) {
-  // Get today's date in YYYY-MM-DD format
-  const today = new Date();
-  const todayDate = today.toISOString().split('T')[0];
+  // `now` is a real timestamp for the delivery/activity records below; `todayCalendar`
+  // is the IST calendar day (explicit, portable regardless of the server's own
+  // timezone) used for every date-only eligibility comparison.
+  const now = new Date();
+  const todayCalendar = todayCalendarDateUTC();
 
   // Get all active cancellations
   const allCancellations = await MealCancellation.find({
@@ -62,10 +72,14 @@ async function subtractMealBalance(mealType) {
   const userIdsToExclude = [];
 
   for (const cancellation of allCancellations) {
-    const startDate = cancellation.startDate.toISOString().split('T')[0];
-    const endDate = cancellation.endDate.toISOString().split('T')[0];
+    if (!cancellation.startDate || !cancellation.endDate) {
+      console.warn(`Skipping cancellation ${cancellation._id} — missing startDate/endDate`);
+      continue;
+    }
+    const startDate = parseCalendarDate(cancellation.startDate);
+    const endDate = parseCalendarDate(cancellation.endDate);
     // Check if today's date falls within the cancellation period
-    if (todayDate >= startDate && todayDate <= endDate) {
+    if (todayCalendar >= startDate && todayCalendar <= endDate) {
       userIdsToExclude.push(cancellation.userId); // Keep as ObjectId
     }
   }
@@ -94,15 +108,15 @@ async function subtractMealBalance(mealType) {
   const skippedUsers = [];
 
   for (const subscription of usersToUpdate) {
-    const subscriptionStartDate = subscription.subscriptionStartDate.toISOString().split('T')[0];
+    const subscriptionStartDate = parseCalendarDate(subscription.subscriptionStartDate);
 
     // Check if subscription has started
-    if (subscriptionStartDate <= todayDate) {
+    if (subscriptionStartDate <= todayCalendar) {
       eligibleUsers.push(subscription);
     } else {
       skippedUsers.push({
         userId: subscription.userId,
-        subscriptionStartDate: subscriptionStartDate,
+        subscriptionStartDate: calendarDateKey(subscriptionStartDate),
         reason: 'Subscription has not started yet'
       });
     }
@@ -112,7 +126,7 @@ async function subtractMealBalance(mealType) {
   console.log('Eligible users:', eligibleUsers.map(user => ({
     userId: user.userId,
     [updateField]: user[updateField],
-    subscriptionStartDate: user.subscriptionStartDate.toISOString().split('T')[0]
+    subscriptionStartDate: calendarDateKey(parseCalendarDate(user.subscriptionStartDate))
   })));
 
   if (skippedUsers.length > 0) {
@@ -143,16 +157,17 @@ async function subtractMealBalance(mealType) {
   if (eligibleUsers.length > 0) {
     try {
       const mealTypeLabel = mealType.charAt(0).toUpperCase() + mealType.slice(1);
+      const todayLabel = nowIST().toFormat('EEE LLL dd yyyy');
       await MealDelivery.insertMany(eligibleUsers.map(sub => ({
         userId: sub.userId,
         subscriptionId: sub._id,
-        date: today,
+        date: now,
         mealType
       })));
       await Activity.insertMany(eligibleUsers.map(sub => ({
         userId: sub.userId,
-        date: today,
-        description: `${mealTypeLabel} meal delivered on ${today.toDateString()}`
+        date: now,
+        description: `${mealTypeLabel} meal delivered on ${todayLabel}`
       })));
       console.log(`Logged ${eligibleUsers.length} ${mealType} deliveries`);
     } catch (error) {
@@ -185,11 +200,8 @@ async function activateNextQueuedPlan() {
     }
 
     // Get current time in IST for meal adjustment
-    const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: TIMEZONE }));
-    const currentHour = nowIST.getHours();
-    const currentMinutes = nowIST.getMinutes();
-    const currentTimeInMinutes = currentHour * 60 + currentMinutes;
-    const activationDateStr = nowIST.toISOString().split('T')[0];
+    const currentTimeInMinutes = currentISTMinutesSinceMidnight();
+    const activationDate = todayCalendarDateUTC();
 
     for (const sub of exhausted) {
       // Mark the exhausted plan as completed
@@ -220,8 +232,8 @@ async function activateNextQueuedPlan() {
       let nextDayLunchMeals = 0;
       let nextDayDinnerMeals = 0;
 
-      const lunchTimePassed = currentTimeInMinutes > 10.5 * 60; // 10:30 AM
-      const dinnerTimePassed = currentTimeInMinutes > 16 * 60;  // 4:00 PM
+      const lunchTimePassed = currentTimeInMinutes > LUNCH_CUTOFF_MINUTES;
+      const dinnerTimePassed = currentTimeInMinutes > DINNER_CUTOFF_MINUTES;
 
       // If lunch delivery has already happened today, move lunch to nextDay
       if (lunchTimePassed && lunchMeals > 0) {
@@ -238,7 +250,7 @@ async function activateNextQueuedPlan() {
 
       await Subscription.findByIdAndUpdate(queuedSub._id, {
         status: 'active',
-        subscriptionStartDate: new Date(activationDateStr),
+        subscriptionStartDate: activationDate,
         lunchMeals,
         dinnerMeals,
         nextDayLunchMeals,
@@ -257,9 +269,7 @@ async function transferNextDayMeals() {
   console.log('Transferring next-day meals to current day meals...');
 
   try {
-    // Get current date in YYYY-MM-DD format
-    const today = new Date();
-    const currentDate = today.toISOString().split('T')[0];
+    const currentDate = todayCalendarDateUTC();
 
     // Find all active subscriptions with next-day meals
     const subscriptionsWithNextDayMeals = await Subscription.find({
@@ -271,18 +281,17 @@ async function transferNextDayMeals() {
     });
 
     for (const subscription of subscriptionsWithNextDayMeals) {
-      // Get subscription start date in YYYY-MM-DD format for comparison
-      const subscriptionStartDate = subscription.subscriptionStartDate.toISOString().split('T')[0];
+      const subscriptionStartDate = parseCalendarDate(subscription.subscriptionStartDate);
 
       // Check if subscription start date is less than or equal to current date (includes today)
       if (!subscription.subscriptionStartDate || subscriptionStartDate > currentDate) {
-        console.log(`Skipping transfer for user ${subscription.userId} - subscriptionStartDate (${subscriptionStartDate}) is after current date (${currentDate})`);
+        console.log(`Skipping transfer for user ${subscription.userId} - subscriptionStartDate (${calendarDateKey(subscriptionStartDate)}) is after current date (${calendarDateKey(currentDate)})`);
         continue;
       }
 
       // Log when transferring for a subscription that starts today
-      if (subscriptionStartDate === currentDate) {
-        console.log(`Transferring meals for user ${subscription.userId} - subscription starts today (${subscriptionStartDate})`);
+      if (subscriptionStartDate.getTime() === currentDate.getTime()) {
+        console.log(`Transferring meals for user ${subscription.userId} - subscription starts today (${calendarDateKey(subscriptionStartDate)})`);
       }
 
       const updates = {};

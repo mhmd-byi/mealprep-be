@@ -1,6 +1,13 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/userModel');
 const Expense = require('../models/expenseModel');
+const {
+  todayCalendarDateUTC,
+  parseCalendarDate,
+  calendarDayOfWeek,
+  addCalendarDays,
+  calendarDateRangeUTC
+} = require('../utils/dateUtils');
 require('dotenv').config();
 
 // Verifies the bearer token and requires an admin role. Sends the response
@@ -27,13 +34,6 @@ const requireAdmin = async (req, res) => {
   return user;
 };
 
-const getISTNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-
-const startOfDay = (date) => {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
 
 const createExpense = async (req, res) => {
   try {
@@ -56,7 +56,7 @@ const createExpense = async (req, res) => {
     }
 
     const expense = new Expense({
-      date: new Date(date),
+      date: parseCalendarDate(date),
       category,
       amount,
       description: description || '',
@@ -80,12 +80,8 @@ const getExpenses = async (req, res) => {
 
     if (startDate || endDate) {
       query.date = {};
-      if (startDate) query.date.$gte = startOfDay(new Date(startDate));
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        query.date.$lte = end;
-      }
+      if (startDate) query.date.$gte = parseCalendarDate(startDate);
+      if (endDate) query.date.$lte = calendarDateRangeUTC(endDate).end;
     }
     if (category) {
       query.category = category;
@@ -121,7 +117,7 @@ const updateExpense = async (req, res) => {
     }
 
     const updates = {};
-    if (date) updates.date = new Date(date);
+    if (date) updates.date = parseCalendarDate(date);
     if (category) updates.category = category;
     if (amount !== undefined) updates.amount = amount;
     if (description !== undefined) updates.description = description;
@@ -160,14 +156,14 @@ const getExpenseSummary = async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const now = getISTNow();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const weekDay = now.getDay(); // 0 = Sunday .. 6 = Saturday
+    const today = todayCalendarDateUTC();
+    // `today` is UTC-midnight-anchored to the IST calendar day, so its UTC parts
+    // are the correct year/month/day regardless of the server's own timezone.
+    const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+    const weekDay = calendarDayOfWeek(today); // 0 = Sunday .. 6 = Saturday
     const daysSinceMonday = weekDay === 0 ? 6 : weekDay - 1;
-    const weekStart = startOfDay(new Date(now));
-    weekStart.setDate(weekStart.getDate() - daysSinceMonday);
-    const todayEnd = new Date(now);
-    todayEnd.setHours(23, 59, 59, 999);
+    const weekStart = addCalendarDays(today, -daysSinceMonday);
+    const todayEnd = calendarDateRangeUTC(today).end;
 
     const [monthExpenses, weekExpenses] = await Promise.all([
       Expense.find({ date: { $gte: monthStart, $lte: todayEnd } }),
@@ -190,7 +186,7 @@ const getExpenseSummary = async (req, res) => {
       .sort((a, b) => b.amount - a.amount);
 
     const topCategory = breakdown.length > 0 ? breakdown[0].category : null;
-    const daysElapsed = now.getDate(); // how many days into the current month so far
+    const daysElapsed = today.getUTCDate(); // how many days into the current month so far
     const averageDailySpend = daysElapsed > 0 ? Math.round(monthTotal / daysElapsed) : 0;
 
     res.json({
