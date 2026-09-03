@@ -1,6 +1,7 @@
 const {
   cancelMealRequest,
   getCancelledMeals,
+  getDeliveredMeals,
   getSubscriptionDetails,
   createSubscription,
   getUserForMealDelivery,
@@ -14,6 +15,7 @@ const {
 const subscriptionRoutes = function(app) {
   app.route('/subscription/cancel-request').post(cancelMealRequest);
   app.route('/subscription/cancelled-meals').get(getCancelledMeals);
+  app.route('/subscription/delivered-meals').get(getDeliveredMeals);
   app
     .route('/subscription/:userId/subscription')
     .get(getSubscriptionDetails)

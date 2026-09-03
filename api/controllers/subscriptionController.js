@@ -1,6 +1,7 @@
 const User = require('../models/userModel');
 const Subscription = require('../models/subscriptionModel');
 const MealCancellation = require('../models/mealcancellation');
+const MealDelivery = require('../models/mealDeliveryModel');
 const Activity = require('../models/activityModel');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
@@ -404,6 +405,46 @@ const getCancelledMeals = async (req, res) => {
   } catch (error) {
     console.error('Error fetching cancelled meals:', error);
     res.status(404).json({ message: error.message });
+  }
+};
+
+const getDeliveredMeals = async (req, res) => {
+  try {
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({ message: 'Missing required date.' });
+    }
+
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const deliveredMeals = await MealDelivery.find({
+      date: { $gte: startOfDay, $lte: endOfDay }
+    }).exec();
+
+    if (deliveredMeals.length === 0) {
+      return res.json([]);
+    }
+
+    const userFetchPromises = deliveredMeals.map(meal => User.findById(meal.userId).exec());
+    const users = await Promise.all(userFetchPromises);
+
+    const formattedMeals = deliveredMeals.map((meal, index) => ({
+      userId: meal.userId,
+      name: users[index] ? `${users[index].firstName} ${users[index].lastName}` : 'Unknown User',
+      mobile: users[index]?.mobile || '',
+      date: meal.date,
+      mealType: meal.mealType,
+      createdAt: meal.createdAt
+    }));
+
+    res.json(formattedMeals);
+  } catch (error) {
+    console.error('Error fetching delivered meals:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
   }
 };
 
@@ -818,6 +859,7 @@ module.exports = {
   getSubscriptionDetails,
   cancelMealRequest,
   getCancelledMeals,
+  getDeliveredMeals,
   getUserForMealDelivery,
   createRazorpayOrder,
   verifyPayment,

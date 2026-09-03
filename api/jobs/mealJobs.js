@@ -2,6 +2,8 @@ const cron = require('node-cron');
 const MealCancellation = require('../models/mealcancellation');
 const Subscription = require('../models/subscriptionModel');
 const Holiday = require('../models/holidayModel');
+const MealDelivery = require('../models/mealDeliveryModel');
+const Activity = require('../models/activityModel');
 const mongoose = require('mongoose');
 
 // Set timezone for cron jobs
@@ -135,6 +137,28 @@ async function subtractMealBalance(mealType) {
     excludedDueToCancellations: userIdsToExclude.length,
     skippedDueToStartDate: skippedUsers.length
   });
+
+  // Record a delivery for each user whose meal was actually deducted above.
+  // Logged separately from the deduction so a logging failure never blocks it.
+  if (eligibleUsers.length > 0) {
+    try {
+      const mealTypeLabel = mealType.charAt(0).toUpperCase() + mealType.slice(1);
+      await MealDelivery.insertMany(eligibleUsers.map(sub => ({
+        userId: sub.userId,
+        subscriptionId: sub._id,
+        date: today,
+        mealType
+      })));
+      await Activity.insertMany(eligibleUsers.map(sub => ({
+        userId: sub.userId,
+        date: today,
+        description: `${mealTypeLabel} meal delivered on ${today.toDateString()}`
+      })));
+      console.log(`Logged ${eligibleUsers.length} ${mealType} deliveries`);
+    } catch (error) {
+      console.error(`Error logging ${mealType} deliveries:`, error);
+    }
+  }
 }
 
 /**

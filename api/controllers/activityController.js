@@ -37,7 +37,7 @@ const getActivityFromUserId = async (req, res) => {
     if (!userId) {
       return res.status(400).json({ message: 'User id not found' });
     }
-    const activities = await Activity.find({ userId });
+    const activities = await Activity.find({ userId }).sort({ createdAt: -1 });
     if (!activities) {
       return res.status(400).json({ message: 'Activities not found' });
     }
