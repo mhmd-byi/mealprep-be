@@ -2,6 +2,9 @@ const {
   cancelMealRequest,
   getCancelledMeals,
   getDeliveredMeals,
+  getMealSchedule,
+  updateMealSchedule,
+  getDietaryStockReport,
   getSubscriptionDetails,
   createSubscription,
   getUserForMealDelivery,
@@ -16,6 +19,9 @@ const subscriptionRoutes = function(app) {
   app.route('/subscription/cancel-request').post(cancelMealRequest);
   app.route('/subscription/cancelled-meals').get(getCancelledMeals);
   app.route('/subscription/delivered-meals').get(getDeliveredMeals);
+  app.route('/subscription/meal-schedule').put(updateMealSchedule);
+  app.route('/subscription/dietary-stock-report').get(getDietaryStockReport);
+  app.route('/subscription/:userId/meal-schedule').get(getMealSchedule);
   app
     .route('/subscription/:userId/subscription')
     .get(getSubscriptionDetails)

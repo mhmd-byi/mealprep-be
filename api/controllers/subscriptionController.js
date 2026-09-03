@@ -2,6 +2,8 @@ const User = require('../models/userModel');
 const Subscription = require('../models/subscriptionModel');
 const MealCancellation = require('../models/mealcancellation');
 const MealDelivery = require('../models/mealDeliveryModel');
+const MealDietaryPreference = require('../models/mealDietaryPreferenceModel');
+const Holiday = require('../models/holidayModel');
 const Activity = require('../models/activityModel');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
@@ -448,6 +450,255 @@ const getDeliveredMeals = async (req, res) => {
   }
 };
 
+// ── Dietary preference (veg / non-veg per day, for "both" meal-type plans) ──
+// A day is locked (unchangeable) once it's within this many days of today, so
+// the client always has a guaranteed clean runway of confirmed counts to shop against.
+const DIET_LOCK_DAYS = 3;
+// Safety ceiling on the schedule window — the real size is derived from remaining
+// meals (see getMealSchedule), this just guards against bad/anomalous data (e.g.
+// a manually-granted test subscription with an unrealistic meal count) causing a
+// runaway date range.
+const DIET_SCHEDULE_WINDOW_DAYS_CAP = 60;
+
+const getISTNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+
+const startOfDay = (date) => {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+const addDays = (date, days) => {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+};
+
+// Local (not UTC) date parts — avoids the day drifting near the IST midnight boundary.
+const formatDateKey = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const isDateLocked = (date, todayStart) => {
+  const diffDays = Math.round((startOfDay(date) - todayStart) / (24 * 60 * 60 * 1000));
+  return diffDays < DIET_LOCK_DAYS;
+};
+
+const getMealSchedule = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const activeSub = await Subscription.findOne({ userId, status: 'active' }).sort({ createdAt: -1, _id: -1 });
+    if (!activeSub || activeSub.mealType !== 'both') {
+      return res.json({ applicable: false, days: [] });
+    }
+
+    const remainingLunch = (activeSub.lunchMeals || 0) + (activeSub.nextDayLunchMeals || 0);
+    const remainingDinner = (activeSub.dinnerMeals || 0) + (activeSub.nextDayDinnerMeals || 0);
+    const hasLunch = remainingLunch > 0;
+    const hasDinner = remainingDinner > 0;
+
+    // Lunch+dinner both selected delivers both on the same day (not spread across
+    // more days), so the window is however many calendar days the remaining meals
+    // actually cover — not a fixed number. It naturally shrinks as meals get used.
+    const mealsPerDay = (hasLunch ? 1 : 0) + (hasDinner ? 1 : 0);
+    if (mealsPerDay === 0) {
+      return res.json({ applicable: true, days: [] });
+    }
+    const scheduleWindowDays = Math.min(
+      Math.ceil((remainingLunch + remainingDinner) / mealsPerDay),
+      DIET_SCHEDULE_WINDOW_DAYS_CAP
+    );
+
+    const todayStart = startOfDay(getISTNow());
+    const subStart = startOfDay(activeSub.subscriptionStartDate);
+    // A plan bought today for a future start date has no deliveries before that
+    // start date — the window (and lock check) must never begin earlier than it.
+    const windowStart = subStart > todayStart ? subStart : todayStart;
+    // Query a generously padded raw span — Sundays (and any holidays) inside the
+    // window consume calendar days without producing a delivery day, so covering
+    // `scheduleWindowDays` real days needs more than that many raw days.
+    const rawSpanDays = scheduleWindowDays * 2;
+    const windowEnd = addDays(windowStart, rawSpanDays);
+
+    const holidays = await Holiday.find({ date: { $gte: windowStart, $lte: windowEnd } });
+    const holidayKeys = new Set(holidays.map(h => formatDateKey(h.date)));
+
+    const prefRows = await MealDietaryPreference.find({
+      userId,
+      date: { $gte: windowStart, $lte: windowEnd }
+    });
+    const prefMap = new Map();
+    prefRows.forEach(r => prefMap.set(`${formatDateKey(r.date)}_${r.mealSlot}`, r.preference));
+
+    const days = [];
+    for (let i = 0; i < rawSpanDays && days.length < scheduleWindowDays; i++) {
+      const date = addDays(windowStart, i);
+      if (date.getDay() === 0) continue; // no delivery on Sundays
+      const dateKey = formatDateKey(date);
+      if (holidayKeys.has(dateKey)) continue; // no delivery on holidays
+
+      const dayEntry = { date: dateKey, locked: isDateLocked(date, todayStart) };
+      if (hasLunch) {
+        dayEntry.lunch = prefMap.get(`${dateKey}_lunch`) || 'veg';
+      }
+      if (hasDinner) {
+        dayEntry.dinner = prefMap.get(`${dateKey}_dinner`) || 'veg';
+      }
+      days.push(dayEntry);
+    }
+
+    res.json({ applicable: true, days });
+  } catch (error) {
+    console.error('Error fetching meal schedule:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
+const updateMealSchedule = async (req, res) => {
+  try {
+    const { userId, date, mealSlot, preference } = req.body;
+
+    if (!userId || !date || !mealSlot || !preference) {
+      return res.status(400).json({ message: 'userId, date, mealSlot and preference are required.' });
+    }
+    if (!['lunch', 'dinner'].includes(mealSlot)) {
+      return res.status(400).json({ message: 'mealSlot must be "lunch" or "dinner".' });
+    }
+    if (!['veg', 'non-veg'].includes(preference)) {
+      return res.status(400).json({ message: 'preference must be "veg" or "non-veg".' });
+    }
+
+    const activeSub = await Subscription.findOne({ userId, status: 'active' }).sort({ createdAt: -1, _id: -1 });
+    if (!activeSub || activeSub.mealType !== 'both') {
+      return res.status(400).json({ message: 'This user does not have an active "Both" meal-type subscription.' });
+    }
+
+    const hasSlot = mealSlot === 'lunch'
+      ? ((activeSub.lunchMeals || 0) > 0 || (activeSub.nextDayLunchMeals || 0) > 0)
+      : ((activeSub.dinnerMeals || 0) > 0 || (activeSub.nextDayDinnerMeals || 0) > 0);
+    if (!hasSlot) {
+      return res.status(400).json({ message: `This plan does not include ${mealSlot}.` });
+    }
+
+    const requestedDate = startOfDay(new Date(date));
+    const todayStart = startOfDay(getISTNow());
+    const subStart = startOfDay(activeSub.subscriptionStartDate);
+
+    if (requestedDate < todayStart) {
+      return res.status(400).json({ message: 'Cannot set a preference for a past date.' });
+    }
+    if (requestedDate < subStart) {
+      return res.status(400).json({ message: 'Cannot set a preference before the plan\'s start date.' });
+    }
+    if (isDateLocked(requestedDate, todayStart)) {
+      return res.status(400).json({
+        message: `This day is locked — it's within ${DIET_LOCK_DAYS} days of delivery and stock has already been planned against it. You can still change any day ${DIET_LOCK_DAYS}+ days out.`
+      });
+    }
+
+    await MealDietaryPreference.findOneAndUpdate(
+      { userId, date: requestedDate, mealSlot },
+      { userId, subscriptionId: activeSub._id, date: requestedDate, mealSlot, preference },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    res.json({ message: 'Preference updated successfully.' });
+  } catch (error) {
+    console.error('Error updating meal schedule:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
+const getDietaryStockReport = async (req, res) => {
+  try {
+    const todayStart = startOfDay(getISTNow());
+    const windowEnd = addDays(todayStart, DIET_LOCK_DAYS - 1);
+
+    const holidays = await Holiday.find({ date: { $gte: todayStart, $lte: windowEnd } });
+    const holidayKeys = new Set(holidays.map(h => formatDateKey(h.date)));
+
+    const reportDates = [];
+    for (let i = 0; i < DIET_LOCK_DAYS; i++) {
+      const date = addDays(todayStart, i);
+      if (date.getDay() === 0) continue;
+      const dateKey = formatDateKey(date);
+      if (holidayKeys.has(dateKey)) continue;
+      reportDates.push(date);
+    }
+
+    const activeSubs = await Subscription.find({ status: 'active' });
+
+    const cancellations = await MealCancellation.find({
+      startDate: { $lte: reportDates[reportDates.length - 1] || todayStart },
+      endDate: { $gte: todayStart }
+    });
+    const isCancelled = (userId, date, mealSlot) => cancellations.some(c =>
+      c.userId.toString() === userId.toString() &&
+      startOfDay(c.startDate) <= date && startOfDay(c.endDate) >= date &&
+      (c.mealType === mealSlot || c.mealType === 'both')
+    );
+
+    const bothUserIds = activeSubs.filter(s => s.mealType === 'both').map(s => s.userId);
+    const prefRows = await MealDietaryPreference.find({
+      userId: { $in: bothUserIds },
+      date: { $gte: todayStart, $lte: windowEnd }
+    });
+    const prefMap = new Map();
+    prefRows.forEach(r => prefMap.set(`${r.userId}_${formatDateKey(r.date)}_${r.mealSlot}`, r.preference));
+
+    // Running remaining-meal projection per subscription across the report window —
+    // a subscription that's about to run out shouldn't be counted on days past its last meal.
+    const remaining = new Map();
+    activeSubs.forEach(sub => remaining.set(sub._id.toString(), {
+      lunch: (sub.lunchMeals || 0) + (sub.nextDayLunchMeals || 0),
+      dinner: (sub.dinnerMeals || 0) + (sub.nextDayDinnerMeals || 0)
+    }));
+
+    const report = reportDates.map(date => {
+      const dateKey = formatDateKey(date);
+      const counts = {
+        date: dateKey,
+        lunch: { veg: 0, nonVeg: 0 },
+        dinner: { veg: 0, nonVeg: 0 }
+      };
+
+      for (const sub of activeSubs) {
+        if (startOfDay(sub.subscriptionStartDate) > date) continue;
+
+        const subRemaining = remaining.get(sub._id.toString());
+        const resolvePreference = (mealSlot) => {
+          if (sub.mealType === 'veg') return 'veg';
+          if (sub.mealType === 'non-veg') return 'non-veg';
+          return prefMap.get(`${sub.userId}_${dateKey}_${mealSlot}`) || 'veg';
+        };
+
+        const wantsLunch = subRemaining.lunch > 0 && !isCancelled(sub.userId, date, 'lunch');
+        const wantsDinner = subRemaining.dinner > 0 && !isCancelled(sub.userId, date, 'dinner');
+
+        if (wantsLunch) {
+          counts.lunch[resolvePreference('lunch') === 'non-veg' ? 'nonVeg' : 'veg']++;
+          subRemaining.lunch -= 1;
+        }
+        if (wantsDinner) {
+          counts.dinner[resolvePreference('dinner') === 'non-veg' ? 'nonVeg' : 'veg']++;
+          subRemaining.dinner -= 1;
+        }
+      }
+
+      return counts;
+    });
+
+    res.json(report);
+  } catch (error) {
+    console.error('Error building dietary stock report:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
 const getUserForMealDelivery = async (req, res) => {
   try {
     const { date, mealType } = req.query;
@@ -504,6 +755,19 @@ const getUserForMealDelivery = async (req, res) => {
       subscription.userId && subscription.userId.role === 'user'
     );
 
+    // For "Both" subscribers, resolve today's actual Veg/Non-Veg pick so kitchen
+    // staff know what to pack — "Both" alone doesn't say what THIS delivery is.
+    const bothUserIds = filteredUsersWithMeals
+      .filter(s => s.mealType === 'both')
+      .map(s => s.userId._id);
+    const prefRows = await MealDietaryPreference.find({
+      userId: { $in: bothUserIds },
+      date: deliveryDateMidnight,
+      mealSlot: mealType
+    });
+    const prefMap = new Map();
+    prefRows.forEach(r => prefMap.set(r.userId.toString(), r.preference));
+
     const userDeliveries = filteredUsersWithMeals.map(subscription => ({
       userId: subscription.userId._id,
       name: `${subscription.userId.firstName} ${subscription.userId.lastName}`,
@@ -511,6 +775,9 @@ const getUserForMealDelivery = async (req, res) => {
       address: subscription.userId.postalAddress,
       mobile: subscription.userId.mobile,
       mealType: subscription.mealType || '',
+      dietaryPreference: subscription.mealType === 'both'
+        ? (prefMap.get(subscription.userId._id.toString()) || 'veg')
+        : subscription.mealType,
       carbType: subscription.carbType || '',
       plan: subscription.plan || '',
       allergy: subscription.allergy || '',
@@ -860,6 +1127,9 @@ module.exports = {
   cancelMealRequest,
   getCancelledMeals,
   getDeliveredMeals,
+  getMealSchedule,
+  updateMealSchedule,
+  getDietaryStockReport,
   getUserForMealDelivery,
   createRazorpayOrder,
   verifyPayment,
