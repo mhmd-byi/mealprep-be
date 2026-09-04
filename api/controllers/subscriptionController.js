@@ -133,6 +133,31 @@ const adjustMealCountsForTime = (meals, lunchDinner = 'both', subscriptionStartD
   };
 };
 
+// Whether a subscription (or a not-yet-created purchase's lunchDinner choice)
+// covers lunch / dinner, based on remaining meal counts (current + next-day).
+const getMealCoverage = (sub) => ({
+  lunch: (sub.lunchMeals || 0) + (sub.nextDayLunchMeals || 0) > 0,
+  dinner: (sub.dinnerMeals || 0) + (sub.nextDayDinnerMeals || 0) > 0
+});
+
+const getPurchaseCoverage = (lunchDinner) => ({
+  lunch: lunchDinner === 'lunch' || lunchDinner === 'lunchAndDinner',
+  dinner: lunchDinner === 'dinner' || lunchDinner === 'lunchAndDinner'
+});
+
+// A new purchase only needs to queue if it shares a meal-type track with an
+// already-active subscription — e.g. buying dinner while only lunch is active
+// does NOT overlap and can go active immediately, running alongside the
+// existing plan; buying lunch while lunch is already active does overlap and
+// still queues, exactly as before. A "Both" purchase (either side) always
+// overlaps, since it covers both tracks.
+const purchaseOverlapsActiveSubs = (lunchDinner, activeSubs) => {
+  const newCoverage = getPurchaseCoverage(lunchDinner);
+  const activeLunch = activeSubs.some(s => getMealCoverage(s).lunch);
+  const activeDinner = activeSubs.some(s => getMealCoverage(s).dinner);
+  return (newCoverage.lunch && activeLunch) || (newCoverage.dinner && activeDinner);
+};
+
 const createSubscription = async (req, res) => {
   try {
     const { userId, plan, startDate, meals, allergy } = req.body;
@@ -191,54 +216,77 @@ const createSubscription = async (req, res) => {
   }
 };
 
+// Enriches one subscription document with the same computed meal-count fields
+// the frontend has always relied on.
+const enrichSubscription = (sub) => {
+  const currentLunchMeals = sub.lunchMeals || 0;
+  const currentDinnerMeals = sub.dinnerMeals || 0;
+  const nextDayLunchMeals = sub.nextDayLunchMeals || 0;
+  const nextDayDinnerMeals = sub.nextDayDinnerMeals || 0;
+  const currentMeals = currentLunchMeals + currentDinnerMeals;
+  const nextDayMeals = nextDayLunchMeals + nextDayDinnerMeals;
+  return {
+    ...sub.toObject(),
+    currentLunchMeals,
+    currentDinnerMeals,
+    nextDayLunchMeals,
+    nextDayDinnerMeals,
+    totalCurrentMeals: currentMeals,
+    totalNextDayMeals: nextDayMeals,
+    totalAvailableMeals: currentMeals + nextDayMeals
+  };
+};
+
 const getSubscriptionDetails = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // Fetch the active plan (status = 'active')
-    const activeSub = await Subscription.findOne({ userId, status: 'active' }).sort({ createdAt: -1, _id: -1 });
+    // A user can now have more than one active subscription at once (e.g. a
+    // lunch-only plan and a separately-active dinner-only plan) — fetch all of
+    // them, newest first.
+    const activeSubs = await Subscription.find({ userId, status: 'active' }).sort({ createdAt: -1, _id: -1 });
 
     // Fetch the queued plan (status = 'queued'), oldest first so the earliest-queued activates next
     const queuedSub = await Subscription.findOne({ userId, status: 'queued' }).sort({ createdAt: 1, _id: 1 });
 
-    if (!activeSub) {
-      return res.json({ isSubscribed: false, currentPlan: null, nextPlan: queuedSub || null });
+    if (activeSubs.length === 0) {
+      return res.json({ isSubscribed: false, currentPlan: null, currentPlans: [], nextPlan: queuedSub || null });
     }
 
-    // Calculate meals for the active plan
-    const currentLunchMeals = activeSub.lunchMeals || 0;
-    const currentDinnerMeals = activeSub.dinnerMeals || 0;
-    const nextDayLunchMeals = activeSub.nextDayLunchMeals || 0;
-    const nextDayDinnerMeals = activeSub.nextDayDinnerMeals || 0;
+    const enrichedPlans = activeSubs.map(enrichSubscription);
 
-    const currentMeals = currentLunchMeals + currentDinnerMeals;
-    const nextDayMeals = nextDayLunchMeals + nextDayDinnerMeals;
-    const totalMeals = currentMeals + nextDayMeals;
+    // Backward-compat single `currentPlan`: when there's genuinely only one
+    // active plan (the overwhelming majority of accounts) this is identical to
+    // what every existing consumer (Header badge, Sidebar gating, customise-meal
+    // dropdown, etc.) has always received. When there are two, it's a merged
+    // view — meal counts summed (so "do I have meals" / "how many" stay
+    // correct everywhere without those call sites needing to change), other
+    // fields taken from the newest plan since they're just for display there.
+    const totalAvailableMeals = enrichedPlans.reduce((sum, p) => sum + p.totalAvailableMeals, 0);
+    const currentPlan = enrichedPlans.length === 1
+      ? enrichedPlans[0]
+      : {
+          ...enrichedPlans[0],
+          currentLunchMeals: enrichedPlans.reduce((s, p) => s + p.currentLunchMeals, 0),
+          currentDinnerMeals: enrichedPlans.reduce((s, p) => s + p.currentDinnerMeals, 0),
+          nextDayLunchMeals: enrichedPlans.reduce((s, p) => s + p.nextDayLunchMeals, 0),
+          nextDayDinnerMeals: enrichedPlans.reduce((s, p) => s + p.nextDayDinnerMeals, 0),
+          totalCurrentMeals: enrichedPlans.reduce((s, p) => s + p.totalCurrentMeals, 0),
+          totalNextDayMeals: enrichedPlans.reduce((s, p) => s + p.totalNextDayMeals, 0),
+          totalAvailableMeals,
+          lunchMeals: enrichedPlans.reduce((s, p) => s + (p.lunchMeals || 0), 0),
+          dinnerMeals: enrichedPlans.reduce((s, p) => s + (p.dinnerMeals || 0), 0),
+          mealType: 'both'
+        };
 
     const response = {
-      isSubscribed: totalMeals > 0,
+      isSubscribed: totalAvailableMeals > 0,
       // Keep 'subscription' key for backward compat with existing frontend code
-      subscription: {
-        ...activeSub.toObject(),
-        currentLunchMeals,
-        currentDinnerMeals,
-        nextDayLunchMeals,
-        nextDayDinnerMeals,
-        totalCurrentMeals: currentMeals,
-        totalNextDayMeals: nextDayMeals,
-        totalAvailableMeals: totalMeals
-      },
-      // Explicit currentPlan and nextPlan for new UI
-      currentPlan: {
-        ...activeSub.toObject(),
-        currentLunchMeals,
-        currentDinnerMeals,
-        nextDayLunchMeals,
-        nextDayDinnerMeals,
-        totalCurrentMeals: currentMeals,
-        totalNextDayMeals: nextDayMeals,
-        totalAvailableMeals: totalMeals
-      },
+      subscription: currentPlan,
+      // Explicit currentPlan (merged, backward-compat) and currentPlans (full
+      // detail, one entry per active plan) for new UI
+      currentPlan,
+      currentPlans: enrichedPlans,
       nextPlan: queuedSub ? queuedSub.toObject() : null
     };
 
@@ -804,14 +852,14 @@ const verifyPayment = async (req, res) => {
       return res.status(201).json(existingSub);
     }
 
-    // Determine if user already has an active subscription with meals remaining
-    const existingActiveSub = await Subscription.findOne({ userId, status: 'active' });
-    const hasActiveMeals = existingActiveSub &&
-      ((existingActiveSub.lunchMeals || 0) + (existingActiveSub.dinnerMeals || 0) +
-       (existingActiveSub.nextDayLunchMeals || 0) + (existingActiveSub.nextDayDinnerMeals || 0)) > 0;
+    // A purchase only queues if it overlaps an already-active plan's meal-type
+    // coverage (e.g. buying dinner while only lunch is active goes active
+    // immediately instead of queuing behind an unrelated meal type).
+    const activeSubs = await Subscription.find({ userId, status: 'active' });
+    const overlapsActive = purchaseOverlapsActiveSubs(lunchDinner, activeSubs);
 
-    const newStatus = hasActiveMeals ? 'queued' : 'active';
-    console.log(`User ${userId} has active meals: ${hasActiveMeals}. Saving new subscription as '${newStatus}'.`);
+    const newStatus = overlapsActive ? 'queued' : 'active';
+    console.log(`User ${userId} purchase (${lunchDinner}) overlaps active coverage: ${overlapsActive}. Saving new subscription as '${newStatus}'.`);
 
     const mealCount = Number(meals);
 
@@ -955,13 +1003,13 @@ const handleRazorpayWebhook = async (req, res) => {
 
       const { userId, plan, meals, mealType, carbType, lunchDinner, mealStartDate, allergy } = notes;
 
-      // Determine status: queued if the user already has an active sub with meals left
-      const existingActiveSub = await Subscription.findOne({ userId, status: 'active' });
-      const hasActiveMeals = existingActiveSub &&
-        ((existingActiveSub.lunchMeals || 0) + (existingActiveSub.dinnerMeals || 0) +
-         (existingActiveSub.nextDayLunchMeals || 0) + (existingActiveSub.nextDayDinnerMeals || 0)) > 0;
+      // A purchase only queues if it overlaps an already-active plan's meal-type
+      // coverage (see purchaseOverlapsActiveSubs) — a non-overlapping purchase
+      // (e.g. dinner bought while only lunch is active) goes active immediately.
+      const activeSubs = await Subscription.find({ userId, status: 'active' });
+      const overlapsActive = purchaseOverlapsActiveSubs(lunchDinner, activeSubs);
 
-      const newStatus = hasActiveMeals ? 'queued' : 'active';
+      const newStatus = overlapsActive ? 'queued' : 'active';
       const mealCount = Number(meals);
 
       let lunchMeals = 0, dinnerMeals = 0, nextDayLunchMeals = 0, nextDayDinnerMeals = 0;
