@@ -19,6 +19,7 @@ const subscriptionRoutes = require('./api/routes/subscriptionRoutes');
 const activityRoutes = require('./api/routes/activityRoutes');
 const holidayRoutes = require('./api/routes/holidayRoutes');
 const expenseRoutes = require('./api/routes/expenseRoutes');
+const expenseCategoryRoutes = require('./api/routes/expenseCategoryRoutes');
 const adminSubscriptionRoutes = require('./api/routes/adminSubscriptionRoutes');
 
 const corsOptions = {
@@ -64,6 +65,7 @@ subscriptionRoutes.subscriptionRoutes(app); // register subscription routes
 activityRoutes.activityRoutes(app); // register activity routes
 holidayRoutes.holidayRoutes(app); // register holiday routes
 expenseRoutes.expenseRoutes(app); // register expense routes
+expenseCategoryRoutes.expenseCategoryRoutes(app); // register expense category management routes
 adminSubscriptionRoutes.adminSubscriptionRoutes(app); // register admin subscription management routes
 
 app.listen(port, () => {

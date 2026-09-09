@@ -1,18 +1,6 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
-const EXPENSE_CATEGORIES = [
-  'Groceries',
-  'Supplies',
-  'Utilities',
-  'Delivery',
-  'Salary',
-  'Rent',
-  'Equipment/Maintenance',
-  'Marketing',
-  'Other'
-];
-
 const PAYMENT_METHODS = ['Cash', 'UPI', 'Card', 'Bank Transfer'];
 
 const expenseSchema = new Schema(
@@ -21,10 +9,16 @@ const expenseSchema = new Schema(
       type: Date,
       required: true
     },
+    // Category/subcategory are admin-managed (see ExpenseCategory) and stored
+    // here as plain text, not a reference — deleting or renaming a master
+    // category later must never change what an existing expense says it was.
     category: {
       type: String,
-      enum: EXPENSE_CATEGORIES,
       required: true
+    },
+    subcategory: {
+      type: String,
+      default: ''
     },
     amount: {
       type: Number,
@@ -47,7 +41,6 @@ const expenseSchema = new Schema(
 );
 
 const Expense = mongoose.model('Expense', expenseSchema);
-Expense.CATEGORIES = EXPENSE_CATEGORIES;
 Expense.PAYMENT_METHODS = PAYMENT_METHODS;
 
 module.exports = Expense;

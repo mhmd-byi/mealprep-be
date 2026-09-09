@@ -1,4 +1,5 @@
 const Expense = require('../models/expenseModel');
+const ExpenseCategory = require('../models/expenseCategoryModel');
 const { requireAdmin } = require('../utils/requireAdmin');
 const {
   todayCalendarDateUTC,
@@ -9,19 +10,41 @@ const {
 } = require('../utils/dateUtils');
 require('dotenv').config();
 
+// Category/subcategory are admin-managed (ExpenseCategory), so they're
+// validated dynamically here instead of a fixed schema enum. Returns the
+// matching category doc so a subcategory can be checked against it too.
+const findValidCategory = async (categoryName) => {
+  const category = await ExpenseCategory.findOne({ name: categoryName });
+  return category;
+};
+
+const validateCategoryAndSubcategory = async (categoryName, subcategoryName) => {
+  const category = await findValidCategory(categoryName);
+  if (!category) {
+    return { error: `Unknown category "${categoryName}". Add it under Manage Categories first.` };
+  }
+  if (subcategoryName) {
+    const hasSubcategory = category.subcategories.some((s) => s.name === subcategoryName);
+    if (!hasSubcategory) {
+      return { error: `"${subcategoryName}" is not a subcategory of "${categoryName}".` };
+    }
+  }
+  return { category };
+};
 
 const createExpense = async (req, res) => {
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const { date, category, amount, description, paymentMethod } = req.body;
+    const { date, category, subcategory, amount, description, paymentMethod } = req.body;
 
     if (!date || !category || amount === undefined || amount === null || !paymentMethod) {
       return res.status(400).json({ message: 'date, category, amount and paymentMethod are required.' });
     }
-    if (!Expense.CATEGORIES.includes(category)) {
-      return res.status(400).json({ message: `category must be one of: ${Expense.CATEGORIES.join(', ')}` });
+    const { error } = await validateCategoryAndSubcategory(category, subcategory);
+    if (error) {
+      return res.status(400).json({ message: error });
     }
     if (!Expense.PAYMENT_METHODS.includes(paymentMethod)) {
       return res.status(400).json({ message: `paymentMethod must be one of: ${Expense.PAYMENT_METHODS.join(', ')}` });
@@ -33,6 +56,7 @@ const createExpense = async (req, res) => {
     const expense = new Expense({
       date: parseCalendarDate(date),
       category,
+      subcategory: subcategory || '',
       amount,
       description: description || '',
       paymentMethod
@@ -50,7 +74,7 @@ const getExpenses = async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const { startDate, endDate, category, search } = req.query;
+    const { startDate, endDate, category, subcategory, search } = req.query;
     const query = {};
 
     if (startDate || endDate) {
@@ -60,6 +84,9 @@ const getExpenses = async (req, res) => {
     }
     if (category) {
       query.category = category;
+    }
+    if (subcategory) {
+      query.subcategory = subcategory;
     }
     if (search) {
       query.description = { $regex: search, $options: 'i' };
@@ -79,10 +106,19 @@ const updateExpense = async (req, res) => {
     if (!admin) return;
 
     const { expenseId } = req.params;
-    const { date, category, amount, description, paymentMethod } = req.body;
+    const { date, category, subcategory, amount, description, paymentMethod } = req.body;
 
-    if (category && !Expense.CATEGORIES.includes(category)) {
-      return res.status(400).json({ message: `category must be one of: ${Expense.CATEGORIES.join(', ')}` });
+    if (category || subcategory) {
+      const existing = await Expense.findById(expenseId);
+      if (!existing) {
+        return res.status(404).json({ message: 'Expense not found.' });
+      }
+      const effectiveCategory = category || existing.category;
+      const effectiveSubcategory = subcategory !== undefined ? subcategory : existing.subcategory;
+      const { error } = await validateCategoryAndSubcategory(effectiveCategory, effectiveSubcategory);
+      if (error) {
+        return res.status(400).json({ message: error });
+      }
     }
     if (paymentMethod && !Expense.PAYMENT_METHODS.includes(paymentMethod)) {
       return res.status(400).json({ message: `paymentMethod must be one of: ${Expense.PAYMENT_METHODS.join(', ')}` });
@@ -94,6 +130,7 @@ const updateExpense = async (req, res) => {
     const updates = {};
     if (date) updates.date = parseCalendarDate(date);
     if (category) updates.category = category;
+    if (subcategory !== undefined) updates.subcategory = subcategory;
     if (amount !== undefined) updates.amount = amount;
     if (description !== undefined) updates.description = description;
     if (paymentMethod) updates.paymentMethod = paymentMethod;
@@ -152,10 +189,18 @@ const getExpenseSummary = async (req, res) => {
     monthExpenses.forEach(e => {
       categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount;
     });
+
+    // Colors now live on the admin-managed category, not a hardcoded map —
+    // fall back to a neutral gray for a category since deleted from the master list.
+    const categoryDocs = await ExpenseCategory.find({ name: { $in: Object.keys(categoryTotals) } });
+    const colorByCategory = {};
+    categoryDocs.forEach((c) => { colorByCategory[c.name] = c.color; });
+
     const breakdown = Object.entries(categoryTotals)
       .map(([category, amount]) => ({
         category,
         amount,
+        color: colorByCategory[category] || '#898781',
         percentage: monthTotal > 0 ? Math.round((amount / monthTotal) * 1000) / 10 : 0
       }))
       .sort((a, b) => b.amount - a.amount);
