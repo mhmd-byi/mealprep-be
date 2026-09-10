@@ -47,6 +47,12 @@ const subscriptionSchema = new Schema(
       required: true
     },
     paymentId: { type: String },
+    // Only set for admin-created subscriptions (Razorpay purchases already
+    // carry their own paymentId/orderId and don't need this).
+    paymentMethod: {
+      type: String,
+      enum: ['Cash', 'UPI', 'Card', 'Bank Transfer']
+    },
     orderId: { type: String },
     refundId: { type: String },
     mealStartDate: { type: String },

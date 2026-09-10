@@ -12,6 +12,7 @@ const VALID_PLANS = ['Trial Meal Pack', 'Weekly Plan', 'Monthly Plan'];
 const VALID_LUNCH_DINNER = ['lunch', 'dinner', 'lunchAndDinner'];
 const VALID_MEAL_TYPES = ['veg', 'non-veg', 'both'];
 const VALID_STATUSES = ['active', 'queued', 'completed', 'cancelled'];
+const VALID_PAYMENT_METHODS = ['Cash', 'UPI', 'Card', 'Bank Transfer'];
 const MEAL_COUNT_FIELDS = ['lunchMeals', 'dinnerMeals', 'nextDayLunchMeals', 'nextDayDinnerMeals'];
 
 const snapshot = (sub) => ({
@@ -26,7 +27,9 @@ const snapshot = (sub) => ({
   nextDayDinnerMeals: sub.nextDayDinnerMeals,
   totalMeals: sub.totalMeals,
   subscriptionStartDate: sub.subscriptionStartDate,
-  mealStartDate: sub.mealStartDate
+  mealStartDate: sub.mealStartDate,
+  paymentMethod: sub.paymentMethod,
+  paymentId: sub.paymentId
 });
 
 const logAction = ({ admin, userId, subscriptionId, action, reason, before, after }) =>
@@ -53,7 +56,7 @@ const createAdminSubscription = async (req, res) => {
 
     const {
       userId, plan, totalMeals, lunchDinner, mealType, carbType,
-      subscriptionStartDate, mealStartDate, allergy, paymentId, reason
+      subscriptionStartDate, mealStartDate, allergy, paymentMethod, paymentId, reason
     } = req.body;
 
     if (!reason || !reason.trim()) {
@@ -72,6 +75,9 @@ const createAdminSubscription = async (req, res) => {
     }
     if (!VALID_MEAL_TYPES.includes(mealType)) {
       return res.status(400).json({ message: `mealType must be one of: ${VALID_MEAL_TYPES.join(', ')}` });
+    }
+    if (paymentMethod && !VALID_PAYMENT_METHODS.includes(paymentMethod)) {
+      return res.status(400).json({ message: `paymentMethod must be one of: ${VALID_PAYMENT_METHODS.join(', ')}` });
     }
     const mealCount = Number(totalMeals);
     if (!Number.isFinite(mealCount) || mealCount <= 0) {
@@ -120,6 +126,7 @@ const createAdminSubscription = async (req, res) => {
       subscriptionStartDate: parseCalendarDate(subscriptionStartDate),
       mealStartDate: mealStartDate || subscriptionStartDate,
       allergy: allergy || '',
+      paymentMethod: paymentMethod || undefined,
       paymentId: paymentId || '',
       status
     });
@@ -172,6 +179,9 @@ const updateAdminSubscription = async (req, res) => {
     if (fieldUpdates.status !== undefined && !VALID_STATUSES.includes(fieldUpdates.status)) {
       return res.status(400).json({ message: `status must be one of: ${VALID_STATUSES.join(', ')}` });
     }
+    if (fieldUpdates.paymentMethod !== undefined && fieldUpdates.paymentMethod && !VALID_PAYMENT_METHODS.includes(fieldUpdates.paymentMethod)) {
+      return res.status(400).json({ message: `paymentMethod must be one of: ${VALID_PAYMENT_METHODS.join(', ')}` });
+    }
 
     const before = snapshot(sub);
 
@@ -179,6 +189,8 @@ const updateAdminSubscription = async (req, res) => {
     if (fieldUpdates.carbType !== undefined) sub.carbType = fieldUpdates.carbType;
     if (fieldUpdates.mealType !== undefined) sub.mealType = fieldUpdates.mealType;
     if (fieldUpdates.allergy !== undefined) sub.allergy = fieldUpdates.allergy;
+    if (fieldUpdates.paymentMethod !== undefined) sub.paymentMethod = fieldUpdates.paymentMethod || undefined;
+    if (fieldUpdates.paymentId !== undefined) sub.paymentId = fieldUpdates.paymentId;
 
     // Meal count deltas (+/-), clamped so a subtract can never go negative
     let netDelta = 0;
