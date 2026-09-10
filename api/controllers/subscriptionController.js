@@ -1138,9 +1138,11 @@ module.exports = {
   getActiveSubscriptionCounts,
   handleRazorpayWebhook,
   cancelQueuedPlan,
-  // Shared with adminSubscriptionController — same rules customer checkout uses
+  // Shared with adminSubscriptionController / reminderJobs — same rules
+  // customer checkout uses
   adjustMealCountsForTime,
   purchaseOverlapsActiveSubs,
+  getMealCoverage,
   LUNCH_CUTOFF_MINUTES,
   DINNER_CUTOFF_MINUTES
 };

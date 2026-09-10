@@ -6,6 +6,7 @@ const port = process.env.PORT || 3001;
 require('dotenv').config()
 const mongoose = require('mongoose');
 require('./api/jobs/mealJobs');
+require('./api/jobs/reminderJobs');
 
 // eslint-disable-next-line no-unused-vars
 const Task = require('./api/models/todoListModel');

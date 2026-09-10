@@ -62,6 +62,13 @@ const subscriptionSchema = new Schema(
       type: String,
       enum: ['active', 'queued', 'completed', 'cancelled'],
       default: 'active'
+    },
+    // Tracks which expiration-reminder emails have already gone out for this
+    // subscription, so the daily reminder job never sends the same one twice.
+    remindersSent: {
+      sevenDay: { type: Boolean, default: false },
+      threeDay: { type: Boolean, default: false },
+      oneDay: { type: Boolean, default: false }
     }
   },
   {
