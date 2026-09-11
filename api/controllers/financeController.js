@@ -4,33 +4,77 @@ const Expense = require('../models/expenseModel');
 const ExpenseCategory = require('../models/expenseCategoryModel');
 const { requireAdmin } = require('../utils/requireAdmin');
 const { computeNetRevenue } = require('../utils/planPricing');
-const { IST_ZONE, todayCalendarDateUTC } = require('../utils/dateUtils');
+const {
+  IST_ZONE,
+  todayCalendarDateUTC,
+  parseCalendarDate,
+  addCalendarDays,
+  calendarDateKey,
+  calendarDayOfWeek,
+  diffInCalendarDays
+} = require('../utils/dateUtils');
 
 const OTHER_COLOR = '#898781';
 // Categories beyond this many (by total spend in the range) fold into "Other"
 // in the month-by-month trend chart, so the stacked bar stays legible and the
-// same category set is used for every month (never a different mix per bar).
+// same category set is used for every bucket (never a different mix per bar).
 const MAX_TREND_CATEGORIES = 7;
+
+// A bucket spans one calendar day, one Monday-start week, or one calendar
+// month — picked automatically from how wide the requested range is, so a
+// 1-week filter shows daily bars instead of collapsing into a single monthly
+// one, while a 2-year filter doesn't render 700+ daily bars.
+const pickGranularity = (spanDays) => {
+  if (spanDays <= 31) return 'day';
+  if (spanDays <= 180) return 'week';
+  return 'month';
+};
+
+const mondayOf = (date) => {
+  const dow = calendarDayOfWeek(date); // 0 = Sunday .. 6 = Saturday
+  const daysSinceMonday = dow === 0 ? 6 : dow - 1;
+  return addCalendarDays(date, -daysSinceMonday);
+};
+
+const monthStartOf = (date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+
+// Start-of-bucket for a calendar-day-convention Date, per granularity.
+const bucketStartOfCalendarDate = (date, granularity) => {
+  if (granularity === 'day') return date;
+  if (granularity === 'week') return mondayOf(date);
+  return monthStartOf(date);
+};
+
+const bucketKeyOf = (date, granularity) => {
+  const start = bucketStartOfCalendarDate(date, granularity);
+  return granularity === 'month'
+    ? `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`
+    : calendarDateKey(start);
+};
 
 // `Subscription.createdAt` is a real timestamp, not the calendar-day-only
 // convention — must go through IST explicitly (same discipline as the rest
-// of this app's date handling) rather than reading raw UTC getters, or a
-// subscription created just after IST midnight gets bucketed into the wrong
-// (previous) month.
-const monthKeyOfTimestamp = (timestamp) =>
-  DateTime.fromJSDate(new Date(timestamp)).setZone(IST_ZONE).toFormat('yyyy-MM');
+// of this app's date handling), or a subscription created just after IST
+// midnight gets bucketed into the wrong (previous) day/week/month.
+const bucketKeyOfTimestamp = (timestamp, granularity) => {
+  const ist = DateTime.fromJSDate(new Date(timestamp)).setZone(IST_ZONE);
+  const calendarDate = new Date(Date.UTC(ist.year, ist.month - 1, ist.day));
+  return bucketKeyOf(calendarDate, granularity);
+};
 
 // `Expense.date` IS the calendar-day-UTC-midnight convention (parsed via
 // parseCalendarDate at write time), so its UTC parts are already the correct
-// IST year/month — safe to read directly.
-const monthKeyOfCalendarDate = (date) => {
-  const d = new Date(date);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-};
+// IST year/month/day — safe to bucket directly.
+const bucketKeyOfCalendarDate = (date, granularity) => bucketKeyOf(new Date(date), granularity);
 
-const monthLabel = (key) => {
-  const [y, m] = key.split('-').map(Number);
-  return DateTime.fromObject({ year: y, month: m, day: 1 }, { zone: 'utc' }).toFormat('LLL yyyy');
+const bucketLabel = (key, granularity) => {
+  if (granularity === 'month') {
+    const [y, m] = key.split('-').map(Number);
+    return DateTime.fromObject({ year: y, month: m, day: 1 }, { zone: 'utc' }).toFormat('LLL yyyy');
+  }
+  const start = DateTime.fromISO(key, { zone: 'utc' });
+  if (granularity === 'day') return start.toFormat('dd LLL');
+  return `${start.toFormat('dd LLL')}–${start.plus({ days: 6 }).toFormat('dd LLL')}`;
 };
 
 // How a subscription was actually paid for, for the payment-method chart.
@@ -45,15 +89,53 @@ const getFinanceDashboard = async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const monthsBack = Math.min(24, Math.max(1, Number(req.query.months) || 12));
-
-    // today's IST calendar date, anchored the same way the rest of the app does
     const today = todayCalendarDateUTC();
-    const rangeStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - (monthsBack - 1), 1));
+
+    // Accepts an explicit range (startDate/endDate, "YYYY-MM-DD") computed by
+    // the frontend from whichever preset/custom picker the admin chose;
+    // defaults to the last 12 calendar months if neither is given.
+    let rangeEndInput = req.query.endDate ? parseCalendarDate(req.query.endDate) : today;
+    let rangeStartInput = req.query.startDate
+      ? parseCalendarDate(req.query.startDate)
+      : new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 11, 1));
+
+    if (isNaN(rangeStartInput.getTime()) || isNaN(rangeEndInput.getTime()) || rangeStartInput > rangeEndInput) {
+      return res.status(400).json({ message: 'Invalid startDate/endDate.' });
+    }
+
+    const spanDays = diffInCalendarDays(rangeEndInput, rangeStartInput) + 1;
+    const granularity = pickGranularity(spanDays);
+
+    // Widen to the full first/last bucket so displayed totals are internally
+    // consistent (e.g. a week-granularity view always shows complete weeks).
+    const bucketStart = bucketStartOfCalendarDate(rangeStartInput, granularity);
+    const lastBucketStart = bucketStartOfCalendarDate(rangeEndInput, granularity);
+    const bucketEnd =
+      granularity === 'day'
+        ? lastBucketStart
+        : granularity === 'week'
+          ? addCalendarDays(lastBucketStart, 6)
+          : new Date(Date.UTC(lastBucketStart.getUTCFullYear(), lastBucketStart.getUTCMonth() + 1, 0));
+
+    // Build the ordered list of bucket keys so a quiet period shows as 0, not missing.
+    const bucketKeys = [];
+    let cursor = bucketStart;
+    while (cursor <= bucketEnd) {
+      bucketKeys.push(bucketKeyOf(cursor, granularity));
+      cursor =
+        granularity === 'day'
+          ? addCalendarDays(cursor, 1)
+          : granularity === 'week'
+            ? addCalendarDays(cursor, 7)
+            : new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
+    }
+
+    const queryStart = bucketStart;
+    const queryEnd = new Date(addCalendarDays(bucketEnd, 1).getTime() - 1); // end-of-day of the last bucket day
 
     const [subscriptions, expenses, categories, allSubsForFirstPurchase] = await Promise.all([
-      Subscription.find({ createdAt: { $gte: rangeStart } }),
-      Expense.find({ date: { $gte: rangeStart } }),
+      Subscription.find({ createdAt: { $gte: queryStart, $lte: queryEnd } }),
+      Expense.find({ date: { $gte: queryStart, $lte: queryEnd } }),
       ExpenseCategory.find(),
       // Lightweight projection across the WHOLE collection (not range-limited) —
       // needed to know each user's very first-ever subscription, to classify
@@ -61,18 +143,11 @@ const getFinanceDashboard = async (req, res) => {
       Subscription.find({}, 'userId createdAt')
     ]);
 
-    // Pre-seed every month in the range so a quiet month shows as 0, not missing.
-    const monthKeys = [];
-    for (let i = 0; i < monthsBack; i++) {
-      const d = new Date(Date.UTC(rangeStart.getUTCFullYear(), rangeStart.getUTCMonth() + i, 1));
-      monthKeys.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
-    }
-
-    const byMonth = {};
-    monthKeys.forEach((key) => {
-      byMonth[key] = {
+    const byBucket = {};
+    bucketKeys.forEach((key) => {
+      byBucket[key] = {
         month: key,
-        label: monthLabel(key),
+        label: bucketLabel(key, granularity),
         revenue: 0,
         subscriptionCount: 0,
         expenses: 0,
@@ -95,16 +170,16 @@ const getFinanceDashboard = async (req, res) => {
     const paymentMethodTotals = {};
 
     subscriptions.forEach((sub) => {
-      const key = monthKeyOfTimestamp(sub.createdAt);
-      if (!byMonth[key]) return; // safety guard, shouldn't happen given the query range
-      byMonth[key].subscriptionCount += 1;
+      const key = bucketKeyOfTimestamp(sub.createdAt, granularity);
+      if (!byBucket[key]) return; // safety guard, shouldn't happen given the query range
+      byBucket[key].subscriptionCount += 1;
 
       const revenue = computeNetRevenue(sub);
-      byMonth[key].revenue += revenue;
+      byBucket[key].revenue += revenue;
 
       const isFirstEver = new Date(sub.createdAt).getTime() === firstPurchaseByUser[sub.userId.toString()];
-      if (isFirstEver) byMonth[key].newCount += 1;
-      else byMonth[key].recurringCount += 1;
+      if (isFirstEver) byBucket[key].newCount += 1;
+      else byBucket[key].recurringCount += 1;
 
       if (!planTotals[sub.plan]) planTotals[sub.plan] = { plan: sub.plan, count: 0, revenue: 0 };
       planTotals[sub.plan].count += 1;
@@ -121,13 +196,13 @@ const getFinanceDashboard = async (req, res) => {
 
     const categoryTotalsOverall = {};
     expenses.forEach((exp) => {
-      const key = monthKeyOfCalendarDate(exp.date);
-      if (byMonth[key]) byMonth[key].expenses += exp.amount;
+      const key = bucketKeyOfCalendarDate(exp.date, granularity);
+      if (byBucket[key]) byBucket[key].expenses += exp.amount;
       categoryTotalsOverall[exp.category] = (categoryTotalsOverall[exp.category] || 0) + exp.amount;
     });
 
-    const series = monthKeys.map((key) => {
-      const row = byMonth[key];
+    const series = bucketKeys.map((key) => {
+      const row = byBucket[key];
       return { ...row, profit: row.revenue - row.expenses };
     });
 
@@ -157,27 +232,27 @@ const getFinanceDashboard = async (req, res) => {
 
     // Trend chart: cap to the top N categories by total spend across the
     // whole range, fold everything else into one consistent "Other" series
-    // so every month's stacked bar uses the exact same category set.
+    // so every bucket's stacked bar uses the exact same category set.
     const topCategoryNames = expenseCategoryBreakdown.slice(0, MAX_TREND_CATEGORIES).map((c) => c.category);
     const trendHasOther = expenseCategoryBreakdown.length > MAX_TREND_CATEGORIES;
     const trendCategories = topCategoryNames.map((name) => ({ name, color: colorByCategory[name] || OTHER_COLOR }));
     if (trendHasOther) trendCategories.push({ name: 'Other', color: OTHER_COLOR });
 
-    const trendByMonth = {};
-    monthKeys.forEach((key) => {
-      trendByMonth[key] = { month: key, label: monthLabel(key) };
-      trendCategories.forEach((c) => { trendByMonth[key][c.name] = 0; });
+    const trendByBucket = {};
+    bucketKeys.forEach((key) => {
+      trendByBucket[key] = { month: key, label: bucketLabel(key, granularity) };
+      trendCategories.forEach((c) => { trendByBucket[key][c.name] = 0; });
     });
     expenses.forEach((exp) => {
-      const key = monthKeyOfCalendarDate(exp.date);
-      if (!trendByMonth[key]) return;
+      const key = bucketKeyOfCalendarDate(exp.date, granularity);
+      if (!trendByBucket[key]) return;
       const bucket = topCategoryNames.includes(exp.category) ? exp.category : 'Other';
-      if (trendByMonth[key][bucket] === undefined) return; // no Other bucket needed, nothing to add
-      trendByMonth[key][bucket] += exp.amount;
+      if (trendByBucket[key][bucket] === undefined) return; // no Other bucket needed, nothing to add
+      trendByBucket[key][bucket] += exp.amount;
     });
     const expenseCategoryTrend = {
       categories: trendCategories,
-      series: monthKeys.map((key) => trendByMonth[key])
+      series: bucketKeys.map((key) => trendByBucket[key])
     };
 
     const paymentMethodBreakdown = Object.entries(paymentMethodTotals)
@@ -191,7 +266,9 @@ const getFinanceDashboard = async (req, res) => {
       expenseCategoryBreakdown,
       expenseCategoryTrend,
       paymentMethodBreakdown,
-      monthsBack
+      granularity,
+      startDate: calendarDateKey(rangeStartInput),
+      endDate: calendarDateKey(rangeEndInput)
     });
   } catch (error) {
     console.error('Error building finance dashboard:', error);
