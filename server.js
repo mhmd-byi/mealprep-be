@@ -22,6 +22,7 @@ const holidayRoutes = require('./api/routes/holidayRoutes');
 const expenseRoutes = require('./api/routes/expenseRoutes');
 const expenseCategoryRoutes = require('./api/routes/expenseCategoryRoutes');
 const adminSubscriptionRoutes = require('./api/routes/adminSubscriptionRoutes');
+const financeRoutes = require('./api/routes/financeRoutes');
 
 const corsOptions = {
   origin: '*', // Adjust this to match the domain you want to allow
@@ -68,6 +69,7 @@ holidayRoutes.holidayRoutes(app); // register holiday routes
 expenseRoutes.expenseRoutes(app); // register expense routes
 expenseCategoryRoutes.expenseCategoryRoutes(app); // register expense category management routes
 adminSubscriptionRoutes.adminSubscriptionRoutes(app); // register admin subscription management routes
+financeRoutes.financeRoutes(app); // register finance dashboard routes
 
 app.listen(port, () => {
   console.log('Node.js + MongoDB RESTful API server started on: ' + port);
