@@ -6,7 +6,8 @@ const {
   parseCalendarDate,
   calendarDayOfWeek,
   addCalendarDays,
-  calendarDateRangeUTC
+  calendarDateRangeUTC,
+  diffInCalendarDays
 } = require('../utils/dateUtils');
 require('dotenv').config();
 
@@ -168,18 +169,32 @@ const getExpenseSummary = async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
+    const { startDate, endDate } = req.query;
+    const hasRange = !!(startDate && endDate);
+
     const today = todayCalendarDateUTC();
     // `today` is UTC-midnight-anchored to the IST calendar day, so its UTC parts
     // are the correct year/month/day regardless of the server's own timezone.
-    const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
-    const weekDay = calendarDayOfWeek(today); // 0 = Sunday .. 6 = Saturday
+    //
+    // With no range given, this defaults to the real current calendar month —
+    // identical to the previous hardcoded behavior. When the admin filters the
+    // Expenses page to a specific month (or a custom date range), the same
+    // "period"/"week within period" math is anchored to that range instead of
+    // to today, so every summary card reflects whichever period is on screen.
+    const periodEnd = hasRange ? parseCalendarDate(endDate) : today;
+    const periodStart = hasRange
+      ? parseCalendarDate(startDate)
+      : new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+    const periodEndBound = hasRange ? calendarDateRangeUTC(endDate).end : calendarDateRangeUTC(today).end;
+
+    const weekDay = calendarDayOfWeek(periodEnd); // 0 = Sunday .. 6 = Saturday
     const daysSinceMonday = weekDay === 0 ? 6 : weekDay - 1;
-    const weekStart = addCalendarDays(today, -daysSinceMonday);
-    const todayEnd = calendarDateRangeUTC(today).end;
+    let weekStart = addCalendarDays(periodEnd, -daysSinceMonday);
+    if (weekStart < periodStart) weekStart = periodStart; // clamp to the selected period
 
     const [monthExpenses, weekExpenses] = await Promise.all([
-      Expense.find({ date: { $gte: monthStart, $lte: todayEnd } }),
-      Expense.find({ date: { $gte: weekStart, $lte: todayEnd } })
+      Expense.find({ date: { $gte: periodStart, $lte: periodEndBound } }),
+      Expense.find({ date: { $gte: weekStart, $lte: periodEndBound } })
     ]);
 
     const monthTotal = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
@@ -206,7 +221,9 @@ const getExpenseSummary = async (req, res) => {
       .sort((a, b) => b.amount - a.amount);
 
     const topCategory = breakdown.length > 0 ? breakdown[0].category : null;
-    const daysElapsed = today.getUTCDate(); // how many days into the current month so far
+    // Inclusive day count of the period (matches the old `today.getUTCDate()`
+    // exactly when there's no range, since periodStart is the 1st of the month).
+    const daysElapsed = diffInCalendarDays(periodEnd, periodStart) + 1;
     const averageDailySpend = daysElapsed > 0 ? Math.round(monthTotal / daysElapsed) : 0;
 
     res.json({
@@ -214,7 +231,8 @@ const getExpenseSummary = async (req, res) => {
       weekTotal,
       topCategory,
       averageDailySpend,
-      breakdown
+      breakdown,
+      isCustomPeriod: hasRange
     });
   } catch (error) {
     console.error('Error building expense summary:', error);
