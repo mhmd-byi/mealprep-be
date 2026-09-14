@@ -60,6 +60,15 @@ app.get('/', (req, res) => {
   res.send('Hello');
 });
 
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    dbConnected: mongoose.connection.readyState === 1,
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
+
 todoRoutes.todoListRoutes(app); // register the route
 userRoutes.userRoutes(app); // register the route
 mealRoutes.mealRoutes(app); // register meal routes
