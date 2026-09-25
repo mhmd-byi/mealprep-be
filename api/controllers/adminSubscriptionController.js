@@ -2,10 +2,12 @@ const Subscription = require('../models/subscriptionModel');
 const User = require('../models/userModel');
 const SubscriptionAuditLog = require('../models/subscriptionAuditLogModel');
 const { requireAdmin } = require('../utils/requireAdmin');
-const { parseCalendarDate } = require('../utils/dateUtils');
+const { parseCalendarDate, currentISTMinutesSinceMidnight } = require('../utils/dateUtils');
 const {
   adjustMealCountsForTime,
-  purchaseOverlapsActiveSubs
+  purchaseOverlapsActiveSubs,
+  LUNCH_CUTOFF_MINUTES,
+  DINNER_CUTOFF_MINUTES
 } = require('./subscriptionController');
 
 const VALID_PLANS = ['Trial Meal Pack', 'Weekly Plan', 'Monthly Plan'];
@@ -192,14 +194,28 @@ const updateAdminSubscription = async (req, res) => {
     if (fieldUpdates.paymentMethod !== undefined) sub.paymentMethod = fieldUpdates.paymentMethod || undefined;
     if (fieldUpdates.paymentId !== undefined) sub.paymentId = fieldUpdates.paymentId;
 
-    // Meal count deltas (+/-), clamped so a subtract can never go negative
+    // Meal count deltas (+/-), clamped so a subtract can never go negative.
+    // Adding to today's lunch/dinner bucket after that meal's cutoff time
+    // reroutes into the next-day bucket instead — same rule the customer
+    // purchase flow and new-subscription creation already apply, so a meal
+    // added here can't slip into today's already-closed delivery list.
+    const currentTimeInMinutes = currentISTMinutesSinceMidnight();
+    const lunchCutoffPassed = currentTimeInMinutes > LUNCH_CUTOFF_MINUTES;
+    const dinnerCutoffPassed = currentTimeInMinutes > DINNER_CUTOFF_MINUTES;
+
     let netDelta = 0;
     MEAL_COUNT_FIELDS.forEach((field) => {
       const delta = Number(mealDeltas[field]);
       if (delta) {
-        const before2 = sub[field] || 0;
-        sub[field] = Math.max(0, before2 + delta);
-        netDelta += sub[field] - before2;
+        let targetField = field;
+        if (delta > 0 && field === 'lunchMeals' && lunchCutoffPassed) {
+          targetField = 'nextDayLunchMeals';
+        } else if (delta > 0 && field === 'dinnerMeals' && dinnerCutoffPassed) {
+          targetField = 'nextDayDinnerMeals';
+        }
+        const before2 = sub[targetField] || 0;
+        sub[targetField] = Math.max(0, before2 + delta);
+        netDelta += sub[targetField] - before2;
       }
     });
     if (netDelta !== 0) {
