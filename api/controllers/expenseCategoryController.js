@@ -1,4 +1,5 @@
 const ExpenseCategory = require('../models/expenseCategoryModel');
+const Expense = require('../models/expenseModel');
 const { requireAdmin } = require('../utils/requireAdmin');
 
 const getCategories = async (req, res) => {
@@ -44,14 +45,20 @@ const updateCategory = async (req, res) => {
 
     const { categoryId } = req.params;
     const { name, color } = req.body;
-    const updates = {};
 
+    const existingCategory = await ExpenseCategory.findById(categoryId);
+    if (!existingCategory) {
+      return res.status(404).json({ message: 'Category not found.' });
+    }
+    const oldName = existingCategory.name;
+
+    const updates = {};
     if (name !== undefined) {
       if (!name.trim()) {
         return res.status(400).json({ message: 'name cannot be empty.' });
       }
-      const existing = await ExpenseCategory.findOne({ name: name.trim(), _id: { $ne: categoryId } });
-      if (existing) {
+      const duplicate = await ExpenseCategory.findOne({ name: name.trim(), _id: { $ne: categoryId } });
+      if (duplicate) {
         return res.status(400).json({ message: 'A category with this name already exists.' });
       }
       updates.name = name.trim();
@@ -59,9 +66,11 @@ const updateCategory = async (req, res) => {
     if (color !== undefined) updates.color = color;
 
     const updated = await ExpenseCategory.findByIdAndUpdate(categoryId, updates, { new: true, runValidators: true });
-    if (!updated) {
-      return res.status(404).json({ message: 'Category not found.' });
+
+    if (updates.name && updates.name !== oldName) {
+      await Expense.updateMany({ category: oldName }, { $set: { category: updates.name } });
     }
+
     res.json(updated);
   } catch (error) {
     console.error('Error updating expense category:', error);
@@ -148,8 +157,17 @@ const updateSubcategory = async (req, res) => {
       return res.status(400).json({ message: 'A subcategory with this name already exists.' });
     }
 
+    const oldSubName = sub.name;
     sub.name = trimmed;
     await category.save();
+
+    if (trimmed !== oldSubName) {
+      await Expense.updateMany(
+        { category: category.name, subcategory: oldSubName },
+        { $set: { subcategory: trimmed } }
+      );
+    }
+
     res.json(category);
   } catch (error) {
     console.error('Error updating subcategory:', error);

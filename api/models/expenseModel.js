@@ -10,8 +10,10 @@ const expenseSchema = new Schema(
       required: true
     },
     // Category/subcategory are admin-managed (see ExpenseCategory) and stored
-    // here as plain text, not a reference — deleting or renaming a master
-    // category later must never change what an existing expense says it was.
+    // here as plain text, not a reference. Renaming a category/subcategory in
+    // ExpenseCategory cascades to update matching text here too (see
+    // expenseCategoryController's updateCategory/updateSubcategory); deleting
+    // one does not touch existing expenses, only the picklist going forward.
     category: {
       type: String,
       required: true
