@@ -75,7 +75,7 @@ const getExpenses = async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const { startDate, endDate, category, subcategory, search } = req.query;
+    const { startDate, endDate, category, subcategory, paymentMethod, search } = req.query;
     const query = {};
 
     if (startDate || endDate) {
@@ -88,6 +88,9 @@ const getExpenses = async (req, res) => {
     }
     if (subcategory) {
       query.subcategory = subcategory;
+    }
+    if (paymentMethod) {
+      query.paymentMethod = paymentMethod;
     }
     if (search) {
       query.description = { $regex: search, $options: 'i' };
