@@ -608,6 +608,14 @@ const updateMealSchedule = async (req, res) => {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
+    const preferenceLabel = preference === 'non-veg' ? 'Non-Veg' : 'Veg';
+    const mealSlotLabel = mealSlot.charAt(0).toUpperCase() + mealSlot.slice(1);
+    await Activity.create({
+      userId,
+      date: todayStart,
+      description: `Changed ${mealSlotLabel} preference for ${calendarDateKey(requestedDate)} to ${preferenceLabel}`
+    });
+
     res.json({ message: 'Preference updated successfully.' });
   } catch (error) {
     console.error('Error updating meal schedule:', error);
