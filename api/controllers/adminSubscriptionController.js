@@ -184,6 +184,17 @@ const updateAdminSubscription = async (req, res) => {
     if (fieldUpdates.paymentMethod !== undefined && fieldUpdates.paymentMethod && !VALID_PAYMENT_METHODS.includes(fieldUpdates.paymentMethod)) {
       return res.status(400).json({ message: `paymentMethod must be one of: ${VALID_PAYMENT_METHODS.join(', ')}` });
     }
+    if (fieldUpdates.subscriptionStartDate !== undefined) {
+      if (sub.status === 'queued') {
+        return res.status(400).json({
+          message: 'Cannot set a start date on a queued plan — it gets set automatically to whichever date it actually activates on.'
+        });
+      }
+      const parsedStartDate = parseCalendarDate(fieldUpdates.subscriptionStartDate);
+      if (Number.isNaN(parsedStartDate.getTime())) {
+        return res.status(400).json({ message: 'subscriptionStartDate must be a valid date.' });
+      }
+    }
 
     const before = snapshot(sub);
 
@@ -193,6 +204,7 @@ const updateAdminSubscription = async (req, res) => {
     if (fieldUpdates.allergy !== undefined) sub.allergy = fieldUpdates.allergy;
     if (fieldUpdates.paymentMethod !== undefined) sub.paymentMethod = fieldUpdates.paymentMethod || undefined;
     if (fieldUpdates.paymentId !== undefined) sub.paymentId = fieldUpdates.paymentId;
+    if (fieldUpdates.subscriptionStartDate !== undefined) sub.subscriptionStartDate = parseCalendarDate(fieldUpdates.subscriptionStartDate);
 
     // Meal count deltas (+/-), clamped so a subtract can never go negative.
     // Adding to today's lunch/dinner bucket after that meal's cutoff time
