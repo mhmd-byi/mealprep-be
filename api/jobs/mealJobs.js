@@ -14,6 +14,7 @@ const {
   calendarDateKey,
   calendarDateRangeUTC
 } = require('../utils/dateUtils');
+const { getMealCoverage } = require('../controllers/subscriptionController');
 
 // Set timezone for cron jobs
 const TIMEZONE = IST_ZONE; // UTC+05:30 (Indian Standard Time)
@@ -215,6 +216,27 @@ async function activateNextQueuedPlan() {
         continue;
       }
 
+      // A user can have more than one active subscription at once (e.g. a
+      // lunch-only plan and a separately-purchased dinner-only plan running
+      // in parallel). The plan we just completed above isn't the only one
+      // that might still be active — if the queued plan would overlap one of
+      // THOSE, activating it now would double-book that meal type. Leave it
+      // queued; it'll be reconsidered the next time a subscription exhausts.
+      const otherActiveSubs = await Subscription.find({
+        userId: sub.userId,
+        status: 'active',
+        _id: { $ne: sub._id }
+      });
+      const queuedCoverage = getMealCoverage(queuedSub);
+      const overlapsOtherActive = otherActiveSubs.some((otherSub) => {
+        const otherCoverage = getMealCoverage(otherSub);
+        return (queuedCoverage.lunch && otherCoverage.lunch) || (queuedCoverage.dinner && otherCoverage.dinner);
+      });
+      if (overlapsOtherActive) {
+        console.log(`Queued subscription ${queuedSub._id} still overlaps another active subscription for user ${sub.userId} — leaving it queued.`);
+        continue;
+      }
+
       // Re-distribute meal counts based on lunchDinner preference and current real time
       // mealStartDate stored in queuedSub is the intended date; since it's activating NOW,
       // use today's date as the effective start
@@ -358,3 +380,10 @@ cron.schedule('45 16 * * 1-6', async () => {
 }, {
   timezone: TIMEZONE
 });
+
+module.exports = {
+  subtractMealBalance,
+  activateNextQueuedPlan,
+  transferNextDayMeals,
+  isHoliday
+};
