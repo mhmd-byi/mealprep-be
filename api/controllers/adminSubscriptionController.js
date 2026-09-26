@@ -1,6 +1,7 @@
 const Subscription = require('../models/subscriptionModel');
 const User = require('../models/userModel');
 const SubscriptionAuditLog = require('../models/subscriptionAuditLogModel');
+const Activity = require('../models/activityModel');
 const { requireAdmin } = require('../utils/requireAdmin');
 const { parseCalendarDate, currentISTMinutesSinceMidnight } = require('../utils/dateUtils');
 const {
@@ -215,7 +216,14 @@ const updateAdminSubscription = async (req, res) => {
     const lunchCutoffPassed = currentTimeInMinutes > LUNCH_CUTOFF_MINUTES;
     const dinnerCutoffPassed = currentTimeInMinutes > DINNER_CUTOFF_MINUTES;
 
+    const MEAL_FIELD_LABELS = {
+      lunchMeals: 'Lunch',
+      dinnerMeals: 'Dinner',
+      nextDayLunchMeals: 'Next-Day Lunch',
+      nextDayDinnerMeals: 'Next-Day Dinner'
+    };
     let netDelta = 0;
+    const mealChangeSummaries = [];
     MEAL_COUNT_FIELDS.forEach((field) => {
       const delta = Number(mealDeltas[field]);
       if (delta) {
@@ -227,7 +235,11 @@ const updateAdminSubscription = async (req, res) => {
         }
         const before2 = sub[targetField] || 0;
         sub[targetField] = Math.max(0, before2 + delta);
-        netDelta += sub[targetField] - before2;
+        const actualChange = sub[targetField] - before2;
+        netDelta += actualChange;
+        if (actualChange !== 0) {
+          mealChangeSummaries.push(`${MEAL_FIELD_LABELS[targetField]} ${actualChange > 0 ? '+' : ''}${actualChange}`);
+        }
       }
     });
     if (netDelta !== 0) {
@@ -261,6 +273,18 @@ const updateAdminSubscription = async (req, res) => {
       before,
       after: snapshot(sub)
     });
+
+    // Surfaced to the customer's own Meal Tracking feed too, not just the
+    // admin-only audit log — a meal count changing is something they should
+    // be able to see happened, even if they don't see the internal reason.
+    if (mealChangeSummaries.length > 0) {
+      await Activity.create({
+        userId: sub.userId,
+        date: new Date(),
+        description: `Meal count updated: ${mealChangeSummaries.join(', ')}`,
+        category: 'meal_count'
+      });
+    }
 
     res.json(sub);
   } catch (error) {

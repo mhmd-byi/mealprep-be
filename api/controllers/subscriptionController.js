@@ -386,7 +386,8 @@ const cancelMealRequest = async (req, res) => {
     const activityData = new Activity({
       userId,
       date: new Date(),
-      description: `Meal cancellation request for ${mealType} meal from ${start.toDateString()} to ${end.toDateString()}`
+      description: `Meal cancellation request for ${mealType} meal from ${start.toDateString()} to ${end.toDateString()}`,
+      category: 'cancellation'
     });
 
     await activityData.save();
@@ -647,7 +648,8 @@ const updateMealSchedule = async (req, res) => {
     await Activity.create({
       userId,
       date: todayStart,
-      description: `Changed ${mealSlotLabel} preference for ${calendarDateKey(requestedDate)} to ${preferenceLabel}`
+      description: `Changed ${mealSlotLabel} preference for ${calendarDateKey(requestedDate)} to ${preferenceLabel}`,
+      category: 'diet'
     });
 
     res.json({ message: 'Preference updated successfully.' });

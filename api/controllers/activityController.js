@@ -8,7 +8,7 @@ require('dotenv').config();
 
 const createActivity = async (req, res) => {
   try {
-    const { userId, date, description } = req.body;
+    const { userId, date, description, category } = req.body;
 
     if (!userId || !date || !description) {
       return res.status(400).json({ message: 'Missing required fields' });
@@ -21,7 +21,10 @@ const createActivity = async (req, res) => {
     const newActivity = new Activity({
       userId,
       date,
-      description
+      description,
+      // Old callers that don't send a category yet still work — the schema
+      // default ('other') applies automatically.
+      ...(category ? { category } : {})
     });
     const savedActivity = await newActivity.save();
     res.status(201).json(savedActivity);
