@@ -417,18 +417,52 @@ const getCancelledMeals = async (req, res) => {
       return res.status(404).json({ message: 'No cancelled meals found.' });
     }
 
-    const userFetchPromises = cancelledMeals.map(meal => User.findById(meal.userId).exec());
-    const users = await Promise.all(userFetchPromises);
+    const userIds = cancelledMeals.map(meal => meal.userId);
+    const [users, activeSubs] = await Promise.all([
+      User.find({ _id: { $in: userIds } }),
+      Subscription.find({ userId: { $in: userIds }, status: 'active' })
+    ]);
+    const userById = new Map(users.map(u => [u._id.toString(), u]));
 
-    const formattedMeals = cancelledMeals.map((meal, index) => ({
-      userId: meal.userId._id,
-      name: `${users[index].firstName} ${users[index].lastName}`,
-      startDate: meal.startDate,
-      endDate: meal.endDate,
-      mealType: meal.mealType,
-      createdAt: meal.createdAt,
-      mobile: users[index].mobile
-    }));
+    const activeSubsByUser = {};
+    activeSubs.forEach(sub => {
+      const key = sub.userId.toString();
+      (activeSubsByUser[key] = activeSubsByUser[key] || []).push(sub);
+    });
+
+    // A cancellation only still matters if the customer actually has an
+    // active plan that would otherwise deliver this meal type — a refunded/
+    // cancelled subscription leaves the old MealCancellation record behind,
+    // but it shouldn't keep showing up here once there's nothing left to cancel.
+    const hasActiveCoverage = (userId, mealType) => {
+      const subs = activeSubsByUser[userId.toString()] || [];
+      return subs.some(sub => {
+        const lunchLeft = (sub.lunchMeals || 0) + (sub.nextDayLunchMeals || 0);
+        const dinnerLeft = (sub.dinnerMeals || 0) + (sub.nextDayDinnerMeals || 0);
+        if (mealType === 'lunch') return lunchLeft > 0;
+        if (mealType === 'dinner') return dinnerLeft > 0;
+        return lunchLeft > 0 || dinnerLeft > 0; // 'both'
+      });
+    };
+
+    const formattedMeals = cancelledMeals
+      .filter(meal => hasActiveCoverage(meal.userId, meal.mealType))
+      .map(meal => {
+        const user = userById.get(meal.userId.toString());
+        return {
+          userId: meal.userId,
+          name: user ? `${user.firstName} ${user.lastName}` : 'Unknown',
+          startDate: meal.startDate,
+          endDate: meal.endDate,
+          mealType: meal.mealType,
+          createdAt: meal.createdAt,
+          mobile: user?.mobile
+        };
+      });
+
+    if (formattedMeals.length === 0) {
+      return res.status(404).json({ message: 'No cancelled meals found.' });
+    }
 
     res.json(formattedMeals);
   } catch (error) {
