@@ -32,7 +32,7 @@ const saveToken = async (token, userId, expires, type, blacklisted = false) => {
 };
 
 const generateAuthTokens = async user => {
-  const accessTokenExpires = moment().add(30, 'minutes');
+  const accessTokenExpires = moment().add(12, 'hours');
   const accessToken = generateToken(user.id, accessTokenExpires, 'access');
 
   const refreshTokenExpires = moment().add(1, 'days');
