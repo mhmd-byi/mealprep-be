@@ -168,6 +168,7 @@ const getFinanceDashboard = async (req, res) => {
 
     const planTotals = {};
     const paymentMethodTotals = {};
+    const carbTotals = {};
 
     subscriptions.forEach((sub) => {
       const key = bucketKeyOfTimestamp(sub.createdAt, granularity);
@@ -187,6 +188,10 @@ const getFinanceDashboard = async (req, res) => {
 
       const method = paymentMethodOf(sub);
       paymentMethodTotals[method] = (paymentMethodTotals[method] || 0) + 1;
+
+      if (!carbTotals[sub.carbType]) carbTotals[sub.carbType] = { carbType: sub.carbType, meals: 0, count: 0 };
+      carbTotals[sub.carbType].meals += sub.totalMeals;
+      carbTotals[sub.carbType].count += 1;
     });
 
     // Category master list, for stable colors even if an expense's category
@@ -259,10 +264,13 @@ const getFinanceDashboard = async (req, res) => {
       .map(([method, count]) => ({ method, count }))
       .sort((a, b) => b.count - a.count);
 
+    const carbBreakdown = Object.values(carbTotals).sort((a, b) => b.meals - a.meals);
+
     res.json({
       series,
       totals,
       planBreakdown,
+      carbBreakdown,
       expenseCategoryBreakdown,
       expenseCategoryTrend,
       paymentMethodBreakdown,
