@@ -2,6 +2,7 @@ const Subscription = require('../models/subscriptionModel');
 const User = require('../models/userModel');
 const SubscriptionAuditLog = require('../models/subscriptionAuditLogModel');
 const Activity = require('../models/activityModel');
+const MealCancellation = require('../models/mealcancellation');
 const { requireAdmin } = require('../utils/requireAdmin');
 const { parseCalendarDate, currentISTMinutesSinceMidnight } = require('../utils/dateUtils');
 const {
@@ -320,8 +321,57 @@ const getSubscriptionAuditLogs = async (req, res) => {
   }
 };
 
+const closeAccount = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const reason = (req.body.reason || '').trim();
+    if (!reason) {
+      return res.status(400).json({ message: 'A reason is required to close an account.' });
+    }
+
+    const user = await User.findById(req.params.userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    const openSubs = await Subscription.find({ userId: user._id, status: { $in: ['active', 'queued'] } });
+    for (const sub of openSubs) {
+      const before = snapshot(sub);
+      sub.status = 'cancelled';
+      sub.lunchMeals = 0;
+      sub.dinnerMeals = 0;
+      sub.nextDayLunchMeals = 0;
+      sub.nextDayDinnerMeals = 0;
+      await sub.save();
+
+      await logAction({
+        admin,
+        userId: user._id,
+        subscriptionId: sub._id,
+        action: 'cancel',
+        reason: `Account closed: ${reason}`,
+        before,
+        after: snapshot(sub)
+      });
+    }
+
+    const deletedRequests = await MealCancellation.deleteMany({ userId: user._id });
+
+    res.json({
+      subscriptionsClosed: openSubs.length,
+      cancellationRequestsDeleted: deletedRequests.deletedCount
+    });
+  } catch (error) {
+    console.error('Error closing account:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
 module.exports = {
   createAdminSubscription,
   updateAdminSubscription,
-  getSubscriptionAuditLogs
+  getSubscriptionAuditLogs,
+  closeAccount
 };
