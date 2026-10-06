@@ -1,4 +1,5 @@
 const { DateTime } = require('luxon');
+const Razorpay = require('razorpay');
 const Subscription = require('../models/subscriptionModel');
 const Expense = require('../models/expenseModel');
 const ExpenseCategory = require('../models/expenseCategoryModel');
@@ -284,4 +285,58 @@ const getFinanceDashboard = async (req, res) => {
   }
 };
 
-module.exports = { getFinanceDashboard };
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET
+});
+
+const RAZORPAY_TRANSACTION_LIMIT = 25;
+
+const getRazorpayTransactions = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const { startDate, endDate } = req.query;
+    const start = DateTime.fromISO(startDate || '', { zone: IST_ZONE }).startOf('day');
+    const end = DateTime.fromISO(endDate || '', { zone: IST_ZONE }).endOf('day');
+    if (!start.isValid || !end.isValid || start > end) {
+      return res.status(400).json({ message: 'Invalid startDate/endDate.' });
+    }
+
+    const payments = await razorpay.payments.all({
+      from: Math.floor(start.toSeconds()),
+      to: Math.floor(end.toSeconds()),
+      count: RAZORPAY_TRANSACTION_LIMIT
+    });
+
+    const orderIds = payments.items.map((p) => p.order_id).filter(Boolean);
+    const subscriptions = await Subscription.find({ orderId: { $in: orderIds } }).populate('userId', 'firstName lastName');
+    const subscriptionByOrderId = new Map(subscriptions.map((sub) => [sub.orderId, sub]));
+
+    const transactions = payments.items.map((payment) => {
+      const sub = subscriptionByOrderId.get(payment.order_id);
+      const user = sub?.userId;
+      return {
+        paymentId: payment.id,
+        createdAt: new Date(payment.created_at * 1000),
+        customerName: user ? `${user.firstName} ${user.lastName}`.trim() : null,
+        plan: sub?.plan || null,
+        amount: payment.amount / 100,
+        refunded: (payment.amount_refunded || 0) / 100,
+        status: payment.status,
+        method: payment.method
+      };
+    });
+
+    res.json({ transactions, startDate, endDate });
+  } catch (error) {
+    console.error('Error fetching Razorpay transactions:', error);
+    res.status(500).json({
+      message: error.error?.description || 'Failed to load Razorpay transactions.',
+      error: error.message
+    });
+  }
+};
+
+module.exports = { getFinanceDashboard, getRazorpayTransactions };
