@@ -12,7 +12,8 @@ const {
   addCalendarDays,
   calendarDateKey,
   calendarDayOfWeek,
-  diffInCalendarDays
+  diffInCalendarDays,
+  istDayBoundsUTC
 } = require('../utils/dateUtils');
 
 const OTHER_COLOR = '#898781';
@@ -267,11 +268,23 @@ const getFinanceDashboard = async (req, res) => {
 
     const carbBreakdown = Object.values(carbTotals).sort((a, b) => b.meals - a.meals);
 
+    const todayBounds = istDayBoundsUTC(calendarDateKey(today));
+    const todaySubscriptions = await Subscription.find({ createdAt: { $gte: todayBounds.start, $lte: todayBounds.end } });
+    const todaySales = todaySubscriptions.reduce(
+      (acc, sub) => {
+        acc.revenue += computeNetRevenue(sub);
+        acc.subscriptionCount += 1;
+        return acc;
+      },
+      { revenue: 0, subscriptionCount: 0 }
+    );
+
     res.json({
       series,
       totals,
       planBreakdown,
       carbBreakdown,
+      todaySales,
       expenseCategoryBreakdown,
       expenseCategoryTrend,
       paymentMethodBreakdown,
