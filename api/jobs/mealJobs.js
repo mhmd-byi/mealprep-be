@@ -168,7 +168,8 @@ async function subtractMealBalance(mealType) {
       await Activity.insertMany(eligibleUsers.map(sub => ({
         userId: sub.userId,
         date: now,
-        description: `${mealTypeLabel} meal delivered on ${todayLabel}`
+        description: `${mealTypeLabel} meal delivered on ${todayLabel}`,
+        category: 'meal_count'
       })));
       console.log(`Logged ${eligibleUsers.length} ${mealType} deliveries`);
     } catch (error) {
