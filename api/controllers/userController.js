@@ -115,7 +115,9 @@ const getUserByEmailAndPassword = async (req, res) => {
         message: 'Login successful',
         tokens,
         userId: user.id,
-        role: user.role
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName
       });
     } else {
       res.status(401).json({ message: 'Invalid email or password' });
@@ -142,7 +144,9 @@ const getUserByMobileNumberAndOtp = async (req, res) => {
     tokens,
     userId: user.id,
     role: user.role,
-    email: user.email
+    email: user.email,
+    firstName: user.firstName,
+    lastName: user.lastName
   });
 };
 
