@@ -225,6 +225,39 @@ const getFinanceDashboard = async (req, res) => {
       { revenue: 0, expenses: 0, profit: 0, subscriptionCount: 0, newCount: 0, recurringCount: 0 }
     );
 
+    const currentSpanDays = diffInCalendarDays(bucketEnd, bucketStart) + 1;
+    const prevBucketEnd = addCalendarDays(bucketStart, -1);
+    const prevBucketStart = addCalendarDays(prevBucketEnd, -(currentSpanDays - 1));
+    const prevQueryEnd = new Date(addCalendarDays(prevBucketEnd, 1).getTime() - 1);
+
+    const [prevSubscriptions, prevExpenses] = await Promise.all([
+      Subscription.find({ createdAt: { $gte: prevBucketStart, $lte: prevQueryEnd } }),
+      Expense.find({ date: { $gte: prevBucketStart, $lte: prevQueryEnd } })
+    ]);
+
+    const prevRevenue = prevSubscriptions.reduce((sum, sub) => sum + computeNetRevenue(sub), 0);
+    const prevExpensesTotal = prevExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+    const prevProfit = prevRevenue - prevExpensesTotal;
+    const prevSubscriptionCount = prevSubscriptions.length;
+
+    const percentChange = (current, previous) => {
+      if (previous === 0) return current === 0 ? 0 : null;
+      return Math.round(((current - previous) / previous) * 100);
+    };
+
+    const previousTotals = {
+      revenue: prevRevenue,
+      expenses: prevExpensesTotal,
+      profit: prevProfit,
+      subscriptionCount: prevSubscriptionCount
+    };
+    const changePercent = {
+      revenue: percentChange(totals.revenue, prevRevenue),
+      expenses: percentChange(totals.expenses, prevExpensesTotal),
+      profit: percentChange(totals.profit, prevProfit),
+      subscriptionCount: percentChange(totals.subscriptionCount, prevSubscriptionCount)
+    };
+
     const planBreakdown = Object.values(planTotals).sort((a, b) => b.revenue - a.revenue);
 
     const expenseTotal = Object.values(categoryTotalsOverall).reduce((s, v) => s + v, 0);
@@ -282,6 +315,8 @@ const getFinanceDashboard = async (req, res) => {
     res.json({
       series,
       totals,
+      previousTotals,
+      changePercent,
       planBreakdown,
       carbBreakdown,
       todaySales,
@@ -352,4 +387,66 @@ const getRazorpayTransactions = async (req, res) => {
   }
 };
 
-module.exports = { getFinanceDashboard, getRazorpayTransactions };
+const TRANSACTION_FEED_LIMIT = 10;
+
+const PAYMENT_STATUS_LABELS = {
+  captured: 'Paid',
+  authorized: 'Pending',
+  refunded: 'Refunded',
+  failed: 'Failed'
+};
+
+// Merges real Razorpay payments (revenue) with real logged Expense entries
+// into one date-sorted feed — there's no unified "transaction" model in this
+// app, so this is built on read rather than stored. Every expense is shown as
+// "Paid" since the Expense model has no pending/unpaid state: a logged
+// expense is, by definition, money already spent.
+const getRecentTransactions = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit) || TRANSACTION_FEED_LIMIT));
+
+    const [payments, expenses] = await Promise.all([
+      razorpay.payments.all({ count: limit }),
+      Expense.find().sort({ date: -1, createdAt: -1 }).limit(limit)
+    ]);
+
+    const orderIds = payments.items.map((p) => p.order_id).filter(Boolean);
+    const subscriptions = await Subscription.find({ orderId: { $in: orderIds } });
+    const subscriptionByOrderId = new Map(subscriptions.map((sub) => [sub.orderId, sub]));
+
+    const revenueRows = payments.items.map((payment) => {
+      const sub = subscriptionByOrderId.get(payment.order_id);
+      return {
+        id: `payment-${payment.id}`,
+        date: new Date(payment.created_at * 1000),
+        type: 'Revenue',
+        description: sub ? `${sub.plan} Payment` : 'Subscription Payment',
+        amount: payment.amount / 100,
+        status: PAYMENT_STATUS_LABELS[payment.status] || payment.status
+      };
+    });
+
+    const expenseRows = expenses.map((exp) => ({
+      id: `expense-${exp._id}`,
+      date: exp.date,
+      type: 'Expense',
+      description: exp.description || exp.category,
+      amount: exp.amount,
+      status: 'Paid'
+    }));
+
+    const transactions = [...revenueRows, ...expenseRows]
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, limit);
+
+    res.json({ transactions });
+  } catch (error) {
+    console.error('Error building recent transactions feed:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
+module.exports = { getFinanceDashboard, getRazorpayTransactions, getRecentTransactions };
