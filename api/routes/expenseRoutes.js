@@ -3,13 +3,15 @@ const {
   getExpenses,
   updateExpense,
   deleteExpense,
-  getExpenseSummary
+  getExpenseSummary,
+  getExpenseMonthlyTrend
 } = require('../controllers/expenseController');
 
 const expenseRoutes = function(app) {
   app.route('/expense/add-expense').post(createExpense);
   app.route('/expense/get-expenses').get(getExpenses);
   app.route('/expense/summary').get(getExpenseSummary);
+  app.route('/expense/monthly-trend').get(getExpenseMonthlyTrend);
   app.route('/expense/update-expense/:expenseId').put(updateExpense);
   app.route('/expense/delete-expense/:expenseId').delete(deleteExpense);
 };

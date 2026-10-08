@@ -229,13 +229,39 @@ const getExpenseSummary = async (req, res) => {
     const daysElapsed = diffInCalendarDays(periodEnd, periodStart) + 1;
     const averageDailySpend = daysElapsed > 0 ? Math.round(monthTotal / daysElapsed) : 0;
 
+    // Comparison periods: the same-length window immediately before each one
+    // above, so "vs last month/week" works the same whether the admin is
+    // looking at the real current month or a filtered range.
+    const prevPeriodEnd = addCalendarDays(periodStart, -1);
+    const prevPeriodStart = addCalendarDays(prevPeriodEnd, -(daysElapsed - 1));
+    const weekLengthDays = diffInCalendarDays(periodEnd, weekStart) + 1;
+    const prevWeekEnd = addCalendarDays(weekStart, -1);
+    const prevWeekStart = addCalendarDays(prevWeekEnd, -(weekLengthDays - 1));
+
+    const [prevMonthExpenses, prevWeekExpenses] = await Promise.all([
+      Expense.find({ date: { $gte: prevPeriodStart, $lte: calendarDateRangeUTC(prevPeriodEnd).end } }),
+      Expense.find({ date: { $gte: prevWeekStart, $lte: calendarDateRangeUTC(prevWeekEnd).end } })
+    ]);
+    const prevMonthTotal = prevMonthExpenses.reduce((sum, e) => sum + e.amount, 0);
+    const prevWeekTotal = prevWeekExpenses.reduce((sum, e) => sum + e.amount, 0);
+    const prevDaysElapsed = diffInCalendarDays(prevPeriodEnd, prevPeriodStart) + 1;
+    const prevAverageDailySpend = prevDaysElapsed > 0 ? Math.round(prevMonthTotal / prevDaysElapsed) : 0;
+
+    const percentChange = (current, previous) => {
+      if (previous === 0) return current === 0 ? 0 : null;
+      return Math.round(((current - previous) / previous) * 100);
+    };
+
     res.json({
       monthTotal,
       weekTotal,
       topCategory,
       averageDailySpend,
       breakdown,
-      isCustomPeriod: hasRange
+      isCustomPeriod: hasRange,
+      monthChangePercent: percentChange(monthTotal, prevMonthTotal),
+      weekChangePercent: percentChange(weekTotal, prevWeekTotal),
+      averageDailyChangePercent: percentChange(averageDailySpend, prevAverageDailySpend)
     });
   } catch (error) {
     console.error('Error building expense summary:', error);
@@ -243,9 +269,50 @@ const getExpenseSummary = async (req, res) => {
   }
 };
 
+// Monthly totals for the last N months (including the current one), for the
+// "Monthly Trend" chart — independent of whatever period the summary cards
+// and table are currently filtered to.
+const getExpenseMonthlyTrend = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const months = Math.min(24, Math.max(1, Number(req.query.months) || 6));
+    const today = todayCalendarDateUTC();
+    const rangeStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - (months - 1), 1));
+    const rangeEnd = calendarDateRangeUTC(today).end;
+
+    const expenses = await Expense.find({ date: { $gte: rangeStart, $lte: rangeEnd } });
+
+    const totalsByMonth = {};
+    expenses.forEach((e) => {
+      const d = new Date(e.date);
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      totalsByMonth[key] = (totalsByMonth[key] || 0) + e.amount;
+    });
+
+    const series = [];
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - i, 1));
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      series.push({
+        month: key,
+        label: d.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' }),
+        total: totalsByMonth[key] || 0
+      });
+    }
+
+    res.json({ series });
+  } catch (error) {
+    console.error('Error building expense monthly trend:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
 module.exports = {
   createExpense,
   getExpenses,
+  getExpenseMonthlyTrend,
   updateExpense,
   deleteExpense,
   getExpenseSummary
