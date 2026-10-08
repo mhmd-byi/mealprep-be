@@ -4,6 +4,7 @@ const axios = require('axios');
 const { MailtrapClient } = require('mailtrap');
 const confirmMobileOtp = require('../models/confirmMobileOtp');
 const { getUserByMobileNumber } = require('./userController');
+const { requireAdmin } = require('../utils/requireAdmin');
 require('dotenv').config();
 
 const createActivity = async (req, res) => {
@@ -47,6 +48,46 @@ const getActivityFromUserId = async (req, res) => {
     res.status(200).json(activities);
   } catch (error) {
     console.error('Error fetching activities:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
+// Recent activity across every customer, newest first — for the admin
+// dashboard's "Customer's Recent Activity" widget. Capped by a lookback
+// window (hours) and a hard limit so one noisy day can't return everything.
+const getRecentActivities = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const hours = Number(req.query.hours) || 24;
+    const limit = Math.min(500, Number(req.query.limit) || 200);
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+    const activities = await Activity.find({ createdAt: { $gte: since } })
+      .sort({ createdAt: -1 })
+      .limit(limit);
+
+    const userIds = [...new Set(activities.map((a) => String(a.userId)))];
+    const users = await User.find({ _id: { $in: userIds } }, 'firstName lastName mobile');
+    const userById = new Map(users.map((u) => [String(u._id), u]));
+
+    const enriched = activities.map((a) => {
+      const user = userById.get(String(a.userId));
+      return {
+        _id: a._id,
+        category: a.category || 'other',
+        description: a.description,
+        createdAt: a.createdAt,
+        userId: a.userId,
+        name: user ? `${user.firstName} ${user.lastName}` : 'Unknown',
+        mobile: user?.mobile || ''
+      };
+    });
+
+    res.json({ activities: enriched, windowHours: hours });
+  } catch (error) {
+    console.error('Error fetching recent activities:', error);
     res.status(500).json({ message: 'Internal Server Error', error: error.message });
   }
 };
@@ -143,6 +184,7 @@ const verifyOtp = async (req, res) => {
 module.exports = {
   createActivity,
   getActivityFromUserId,
+  getRecentActivities,
   sendEmailMailTrap,
   sendMessageAiSensy,
   verifyOtp
