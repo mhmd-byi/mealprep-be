@@ -659,16 +659,25 @@ const updateMealSchedule = async (req, res) => {
   }
 };
 
+// Safety ceiling on how far ahead the admin can pull this report — independent
+// of DIET_LOCK_DAYS (that's the separate, unrelated rule for when a "both"
+// subscriber's own veg/non-veg preference stops being editable).
+const DIETARY_REPORT_MAX_DAYS = 30;
+
 const getDietaryStockReport = async (req, res) => {
   try {
     const todayStart = todayCalendarDateUTC();
-    const windowEnd = addCalendarDays(todayStart, DIET_LOCK_DAYS - 1);
+    const requestedDays = Math.min(
+      DIETARY_REPORT_MAX_DAYS,
+      Math.max(DIET_LOCK_DAYS, Number(req.query.days) || DIET_LOCK_DAYS)
+    );
+    const windowEnd = addCalendarDays(todayStart, requestedDays - 1);
 
     const holidays = await Holiday.find({ date: { $gte: todayStart, $lte: windowEnd } });
     const holidayKeys = new Set(holidays.map(h => calendarDateKey(h.date)));
 
     const reportDates = [];
-    for (let i = 0; i < DIET_LOCK_DAYS; i++) {
+    for (let i = 0; i < requestedDays; i++) {
       const date = addCalendarDays(todayStart, i);
       if (calendarDayOfWeek(date) === 0) continue;
       const dateKey = calendarDateKey(date);
@@ -708,6 +717,7 @@ const getDietaryStockReport = async (req, res) => {
       const dateKey = calendarDateKey(date);
       const counts = {
         date: dateKey,
+        locked: isDateLocked(date, todayStart),
         lunch: { veg: 0, nonVeg: 0 },
         dinner: { veg: 0, nonVeg: 0 }
       };
