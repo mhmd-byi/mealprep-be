@@ -3,8 +3,9 @@ const Razorpay = require('razorpay');
 const Subscription = require('../models/subscriptionModel');
 const Expense = require('../models/expenseModel');
 const ExpenseCategory = require('../models/expenseCategoryModel');
+const MealDelivery = require('../models/mealDeliveryModel');
 const { requireAdmin } = require('../utils/requireAdmin');
-const { computeNetRevenue } = require('../utils/planPricing');
+const { PLAN_PRICING, hasRealPayment, computeNetRevenue } = require('../utils/planPricing');
 const {
   IST_ZONE,
   todayCalendarDateUTC,
@@ -333,6 +334,99 @@ const getFinanceDashboard = async (req, res) => {
   }
 };
 
+const MAX_DAILY_SALES_DAYS = 366;
+
+// A delivered meal has no price of its own — a subscription sells a bundle of
+// meals for one price. Values each delivery at that subscription's price ÷
+// its total meal count, same per-meal estimate computeGrossAmount uses for
+// revenue, and the same real-payment/refund rules computeNetRevenue applies,
+// so a complimentary or refunded plan's deliveries never show as "amount".
+const pricePerMealOf = (sub) => {
+  if (!sub || !hasRealPayment(sub) || sub.refundId) return 0;
+  const pricing = PLAN_PRICING[sub.plan];
+  if (!pricing) return 0;
+  return pricing.price / pricing.meals;
+};
+
+// Day-by-day sales + actual meal deliveries for a chosen range (e.g. one
+// month), independent of the main dashboard's chart (which collapses into
+// week/month buckets for wider ranges) — every day is its own row here.
+const getDailySales = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const { startDate, endDate } = req.query;
+    if (!startDate || !endDate) {
+      return res.status(400).json({ message: 'startDate and endDate are required.' });
+    }
+    const rangeStart = parseCalendarDate(startDate);
+    const rangeEnd = parseCalendarDate(endDate);
+    if (isNaN(rangeStart.getTime()) || isNaN(rangeEnd.getTime()) || rangeStart > rangeEnd) {
+      return res.status(400).json({ message: 'Invalid startDate/endDate.' });
+    }
+    const spanDays = diffInCalendarDays(rangeEnd, rangeStart) + 1;
+    if (spanDays > MAX_DAILY_SALES_DAYS) {
+      return res.status(400).json({ message: `Range too wide — max ${MAX_DAILY_SALES_DAYS} days.` });
+    }
+
+    const dayKeys = [];
+    let cursor = rangeStart;
+    while (cursor <= rangeEnd) {
+      dayKeys.push(calendarDateKey(cursor));
+      cursor = addCalendarDays(cursor, 1);
+    }
+
+    const queryStart = rangeStart;
+    const queryEnd = new Date(addCalendarDays(rangeEnd, 1).getTime() - 1);
+
+    const [subscriptions, deliveries] = await Promise.all([
+      Subscription.find({ createdAt: { $gte: queryStart, $lte: queryEnd } }),
+      MealDelivery.find({ date: { $gte: queryStart, $lte: queryEnd } })
+    ]);
+
+    const deliverySubIds = [...new Set(deliveries.map((d) => d.subscriptionId.toString()))];
+    const deliverySubs = await Subscription.find({ _id: { $in: deliverySubIds } });
+    const pricePerMealBySubId = new Map(deliverySubs.map((sub) => [sub._id.toString(), pricePerMealOf(sub)]));
+
+    const byDay = {};
+    dayKeys.forEach((key) => {
+      byDay[key] = { date: key, saleAmount: 0, subscriptionCount: 0, mealsDelivered: 0, mealsDeliveredAmount: 0 };
+    });
+
+    subscriptions.forEach((sub) => {
+      const key = bucketKeyOfTimestamp(sub.createdAt, 'day');
+      if (!byDay[key]) return;
+      byDay[key].saleAmount += computeNetRevenue(sub);
+      byDay[key].subscriptionCount += 1;
+    });
+
+    deliveries.forEach((delivery) => {
+      const key = bucketKeyOfTimestamp(delivery.date, 'day');
+      if (!byDay[key]) return;
+      byDay[key].mealsDelivered += 1;
+      byDay[key].mealsDeliveredAmount += pricePerMealBySubId.get(delivery.subscriptionId.toString()) || 0;
+    });
+
+    const days = dayKeys.map((key) => ({ ...byDay[key], mealsDeliveredAmount: Math.round(byDay[key].mealsDeliveredAmount) }));
+
+    const totals = days.reduce(
+      (acc, row) => ({
+        saleAmount: acc.saleAmount + row.saleAmount,
+        subscriptionCount: acc.subscriptionCount + row.subscriptionCount,
+        mealsDelivered: acc.mealsDelivered + row.mealsDelivered,
+        mealsDeliveredAmount: acc.mealsDeliveredAmount + row.mealsDeliveredAmount
+      }),
+      { saleAmount: 0, subscriptionCount: 0, mealsDelivered: 0, mealsDeliveredAmount: 0 }
+    );
+
+    res.json({ days, totals, startDate: calendarDateKey(rangeStart), endDate: calendarDateKey(rangeEnd) });
+  } catch (error) {
+    console.error('Error building daily sales report:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET
@@ -449,4 +543,4 @@ const getRecentTransactions = async (req, res) => {
   }
 };
 
-module.exports = { getFinanceDashboard, getRazorpayTransactions, getRecentTransactions };
+module.exports = { getFinanceDashboard, getDailySales, getRazorpayTransactions, getRecentTransactions };
