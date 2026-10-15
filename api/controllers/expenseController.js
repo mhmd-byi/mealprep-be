@@ -93,7 +93,19 @@ const getExpenses = async (req, res) => {
       query.paymentMethod = paymentMethod;
     }
     if (search) {
-      query.description = { $regex: search, $options: 'i' };
+      const searchConditions = [
+        { description: { $regex: search, $options: 'i' } },
+        { category: { $regex: search, $options: 'i' } },
+        { subcategory: { $regex: search, $options: 'i' } },
+        { paymentMethod: { $regex: search, $options: 'i' } },
+      ];
+      // A purely numeric search also matches the exact amount, so e.g. "850"
+      // finds a ₹850 expense even though amount isn't a text field.
+      const numericSearch = Number(search);
+      if (search.trim() !== '' && !Number.isNaN(numericSearch)) {
+        searchConditions.push({ amount: numericSearch });
+      }
+      query.$or = searchConditions;
     }
 
     const expenses = await Expense.find(query).sort({ date: -1, createdAt: -1 });
