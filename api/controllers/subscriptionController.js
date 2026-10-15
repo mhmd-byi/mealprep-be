@@ -472,6 +472,10 @@ const getCancelledMeals = async (req, res) => {
   }
 };
 
+// Historical log of what actually went out on a given day (any past day, not
+// just today) — distinct from getUserForMealDelivery's forward-looking "who's
+// scheduled" prep list, which is projected from current remaining meal
+// counts and can't answer "what happened on a day that's already passed."
 const getDeliveredMeals = async (req, res) => {
   try {
     const { date } = req.query;
@@ -485,27 +489,50 @@ const getDeliveredMeals = async (req, res) => {
     // a point comparison.
     const { start: dayStart, end: dayEnd } = istDayBoundsUTC(date);
 
-    const deliveredMeals = await MealDelivery.find({
-      date: { $gte: dayStart, $lte: dayEnd }
-    }).exec();
+    const [deliveredMeals, endedSubscriptions] = await Promise.all([
+      MealDelivery.find({ date: { $gte: dayStart, $lte: dayEnd } }).exec(),
+      // "Ended that day" mirrors getSubscriptionEndLabel elsewhere: a plan's
+      // end date isn't a stored field, it's inferred as updatedAt once status
+      // flips to completed/cancelled.
+      Subscription.find({
+        status: { $in: ['completed', 'cancelled'] },
+        updatedAt: { $gte: dayStart, $lte: dayEnd }
+      }).populate('userId', 'firstName lastName mobile').exec()
+    ]);
 
-    if (deliveredMeals.length === 0) {
-      return res.json([]);
-    }
+    const userIds = [...new Set(deliveredMeals.map((m) => m.userId.toString()))];
+    const users = await User.find({ _id: { $in: userIds } }, 'firstName lastName mobile').exec();
+    const userById = new Map(users.map((u) => [u._id.toString(), u]));
 
-    const userFetchPromises = deliveredMeals.map(meal => User.findById(meal.userId).exec());
-    const users = await Promise.all(userFetchPromises);
+    const lunch = [];
+    const dinner = [];
+    deliveredMeals.forEach((meal) => {
+      const user = userById.get(meal.userId.toString());
+      const row = {
+        userId: meal.userId,
+        name: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+        mobile: user?.mobile || '',
+        date: meal.date,
+        createdAt: meal.createdAt
+      };
+      (meal.mealType === 'lunch' ? lunch : dinner).push(row);
+    });
 
-    const formattedMeals = deliveredMeals.map((meal, index) => ({
-      userId: meal.userId,
-      name: users[index] ? `${users[index].firstName} ${users[index].lastName}` : 'Unknown User',
-      mobile: users[index]?.mobile || '',
-      date: meal.date,
-      mealType: meal.mealType,
-      createdAt: meal.createdAt
+    const endedList = endedSubscriptions.map((sub) => ({
+      userId: sub.userId?._id || null,
+      name: sub.userId ? `${sub.userId.firstName} ${sub.userId.lastName}` : 'Unknown User',
+      mobile: sub.userId?.mobile || '',
+      plan: sub.plan,
+      status: sub.status,
+      endedAt: sub.updatedAt
     }));
 
-    res.json(formattedMeals);
+    res.json({
+      date,
+      lunch: { count: lunch.length, deliveries: lunch },
+      dinner: { count: dinner.length, deliveries: dinner },
+      endedSubscriptions: endedList
+    });
   } catch (error) {
     console.error('Error fetching delivered meals:', error);
     res.status(500).json({ message: 'Internal Server Error', error: error.message });
