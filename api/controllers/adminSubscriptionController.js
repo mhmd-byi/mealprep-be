@@ -4,7 +4,7 @@ const SubscriptionAuditLog = require('../models/subscriptionAuditLogModel');
 const Activity = require('../models/activityModel');
 const MealCancellation = require('../models/mealcancellation');
 const { requireAdmin } = require('../utils/requireAdmin');
-const { parseCalendarDate, currentISTMinutesSinceMidnight } = require('../utils/dateUtils');
+const { parseCalendarDate, currentISTMinutesSinceMidnight, istDayBoundsUTC } = require('../utils/dateUtils');
 const {
   adjustMealCountsForTime,
   purchaseOverlapsActiveSubs,
@@ -299,18 +299,28 @@ const getSubscriptionAuditLogs = async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const { userId, subscriptionId, adminId, page = 1, limit = 50 } = req.query;
+    const { userId, subscriptionId, adminId, action, startDate, endDate, page = 1, limit = 50 } = req.query;
     const query = {};
     if (userId) query.userId = userId;
     if (subscriptionId) query.subscriptionId = subscriptionId;
     if (adminId) query.adminId = adminId;
+    if (action) query.action = action;
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = istDayBoundsUTC(startDate).start;
+      if (endDate) query.createdAt.$lte = istDayBoundsUTC(endDate).end;
+    }
 
     const pageNum = Math.max(1, Number(page) || 1);
     const limitNum = Math.min(200, Math.max(1, Number(limit) || 50));
     const skip = (pageNum - 1) * limitNum;
 
     const [logs, total] = await Promise.all([
-      SubscriptionAuditLog.find(query).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+      SubscriptionAuditLog.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .populate('userId', 'firstName lastName email mobile'),
       SubscriptionAuditLog.countDocuments(query)
     ]);
 
