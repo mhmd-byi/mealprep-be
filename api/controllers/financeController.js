@@ -4,6 +4,7 @@ const Subscription = require('../models/subscriptionModel');
 const Expense = require('../models/expenseModel');
 const ExpenseCategory = require('../models/expenseCategoryModel');
 const MealDelivery = require('../models/mealDeliveryModel');
+const User = require('../models/userModel');
 const { requireAdmin } = require('../utils/requireAdmin');
 const { PLAN_PRICING, hasRealPayment, computeNetRevenue } = require('../utils/planPricing');
 const {
@@ -176,7 +177,7 @@ const getFinanceDashboard = async (req, res) => {
     const queryStart = bucketStart;
     const queryEnd = new Date(addCalendarDays(bucketEnd, 1).getTime() - 1); // end-of-day of the last bucket day
 
-    const [subscriptions, expenses, categories, allSubsForFirstPurchase, actualSaleResult] = await Promise.all([
+    const [subscriptions, expenses, categories, allSubsForFirstPurchase, actualSaleResult, newUsers] = await Promise.all([
       Subscription.find({ createdAt: { $gte: queryStart, $lte: queryEnd } }),
       Expense.find({ date: { $gte: queryStart, $lte: queryEnd } }),
       ExpenseCategory.find(),
@@ -184,7 +185,10 @@ const getFinanceDashboard = async (req, res) => {
       // needed to know each user's very first-ever subscription, to classify
       // in-range subscriptions as new vs recurring.
       Subscription.find({}, 'userId createdAt'),
-      actualSaleBreakdown(queryStart, queryEnd, granularity)
+      actualSaleBreakdown(queryStart, queryEnd, granularity),
+      // Real customer accounts only — excludes admin/staff logins from the
+      // "user growth" trend.
+      User.find({ role: 'user', createdAt: { $gte: queryStart, $lte: queryEnd } }, 'createdAt')
     ]);
 
     const byBucket = {};
@@ -194,6 +198,7 @@ const getFinanceDashboard = async (req, res) => {
         label: bucketLabel(key, granularity),
         revenue: 0,
         actualSale: actualSaleResult.byBucket[key] || 0,
+        newUsers: 0,
         subscriptionCount: 0,
         expenses: 0,
         newCount: 0,
@@ -239,6 +244,11 @@ const getFinanceDashboard = async (req, res) => {
       carbTotals[sub.carbType].count += 1;
     });
 
+    newUsers.forEach((u) => {
+      const key = bucketKeyOfTimestamp(u.createdAt, granularity);
+      if (byBucket[key]) byBucket[key].newUsers += 1;
+    });
+
     // Category master list, for stable colors even if an expense's category
     // was later renamed/deleted from the master list.
     const colorByCategory = {};
@@ -265,9 +275,10 @@ const getFinanceDashboard = async (req, res) => {
         actualProfit: acc.actualProfit + row.actualProfit,
         subscriptionCount: acc.subscriptionCount + row.subscriptionCount,
         newCount: acc.newCount + row.newCount,
-        recurringCount: acc.recurringCount + row.recurringCount
+        recurringCount: acc.recurringCount + row.recurringCount,
+        newUsers: acc.newUsers + row.newUsers
       }),
-      { revenue: 0, actualSale: 0, expenses: 0, profit: 0, actualProfit: 0, subscriptionCount: 0, newCount: 0, recurringCount: 0 }
+      { revenue: 0, actualSale: 0, expenses: 0, profit: 0, actualProfit: 0, subscriptionCount: 0, newCount: 0, recurringCount: 0, newUsers: 0 }
     );
 
     const currentSpanDays = diffInCalendarDays(bucketEnd, bucketStart) + 1;
@@ -275,10 +286,11 @@ const getFinanceDashboard = async (req, res) => {
     const prevBucketStart = addCalendarDays(prevBucketEnd, -(currentSpanDays - 1));
     const prevQueryEnd = new Date(addCalendarDays(prevBucketEnd, 1).getTime() - 1);
 
-    const [prevSubscriptions, prevExpenses, prevActualSaleResult] = await Promise.all([
+    const [prevSubscriptions, prevExpenses, prevActualSaleResult, prevNewUsersCount] = await Promise.all([
       Subscription.find({ createdAt: { $gte: prevBucketStart, $lte: prevQueryEnd } }),
       Expense.find({ date: { $gte: prevBucketStart, $lte: prevQueryEnd } }),
-      actualSaleBreakdown(prevBucketStart, prevQueryEnd, 'day')
+      actualSaleBreakdown(prevBucketStart, prevQueryEnd, 'day'),
+      User.countDocuments({ role: 'user', createdAt: { $gte: prevBucketStart, $lte: prevQueryEnd } })
     ]);
 
     const prevRevenue = prevSubscriptions.reduce((sum, sub) => sum + computeNetRevenue(sub), 0);
@@ -299,7 +311,8 @@ const getFinanceDashboard = async (req, res) => {
       expenses: prevExpensesTotal,
       profit: prevProfit,
       actualProfit: prevActualProfit,
-      subscriptionCount: prevSubscriptionCount
+      subscriptionCount: prevSubscriptionCount,
+      newUsers: prevNewUsersCount
     };
     const changePercent = {
       revenue: percentChange(totals.revenue, prevRevenue),
@@ -307,7 +320,8 @@ const getFinanceDashboard = async (req, res) => {
       expenses: percentChange(totals.expenses, prevExpensesTotal),
       profit: percentChange(totals.profit, prevProfit),
       actualProfit: percentChange(totals.actualProfit, prevActualProfit),
-      subscriptionCount: percentChange(totals.subscriptionCount, prevSubscriptionCount)
+      subscriptionCount: percentChange(totals.subscriptionCount, prevSubscriptionCount),
+      newUsers: percentChange(totals.newUsers, prevNewUsersCount)
     };
 
     // Merge in actual-sale-by-plan so "Actual Sale by Plan" can mirror
