@@ -513,16 +513,22 @@ const getDeliveredMeals = async (req, res) => {
 };
 
 // ── Dietary preference (veg / non-veg per day, for "both" meal-type plans) ──
-// A day is locked (unchangeable) once it's within this many days of today, so
-// the client always has a guaranteed clean runway of confirmed counts to shop against.
-const DIET_LOCK_DAYS = 3;
+// Locking now mirrors cancellation/customisation exactly: a future day is
+// always open, and today's own lunch/dinner choice locks only once that
+// meal's real cutoff has passed (10:30 AM lunch, 4:00 PM dinner) — not a
+// blanket multi-day advance lock.
 // Safety ceiling on the schedule window — the real size is derived from remaining
 // meals (see getMealSchedule), this just guards against bad/anomalous data (e.g.
 // a manually-granted test subscription with an unrealistic meal count) causing a
 // runaway date range.
 const DIET_SCHEDULE_WINDOW_DAYS_CAP = 60;
 
-const isDateLocked = (date, today) => diffInCalendarDays(date, today) < DIET_LOCK_DAYS;
+const isDateLocked = (date, mealSlot, todayStart) => {
+  const daysFromToday = diffInCalendarDays(date, todayStart);
+  if (daysFromToday !== 0) return daysFromToday < 0; // future = always open, past = locked
+  const cutoff = mealSlot === 'lunch' ? LUNCH_CUTOFF_MINUTES : DINNER_CUTOFF_MINUTES;
+  return currentISTMinutesSinceMidnight() > cutoff;
+};
 
 const getMealSchedule = async (req, res) => {
   try {
@@ -578,12 +584,14 @@ const getMealSchedule = async (req, res) => {
       const dateKey = calendarDateKey(date);
       if (holidayKeys.has(dateKey)) continue; // no delivery on holidays
 
-      const dayEntry = { date: dateKey, locked: isDateLocked(date, todayStart) };
+      const dayEntry = { date: dateKey };
       if (hasLunch) {
         dayEntry.lunch = prefMap.get(`${dateKey}_lunch`) || 'veg';
+        dayEntry.lunchLocked = isDateLocked(date, 'lunch', todayStart);
       }
       if (hasDinner) {
         dayEntry.dinner = prefMap.get(`${dateKey}_dinner`) || 'veg';
+        dayEntry.dinnerLocked = isDateLocked(date, 'dinner', todayStart);
       }
       days.push(dayEntry);
     }
@@ -631,9 +639,10 @@ const updateMealSchedule = async (req, res) => {
     if (requestedDate < subStart) {
       return res.status(400).json({ message: 'Cannot set a preference before the plan\'s start date.' });
     }
-    if (isDateLocked(requestedDate, todayStart)) {
+    if (isDateLocked(requestedDate, mealSlot, todayStart)) {
+      const cutoffLabel = mealSlot === 'lunch' ? '10:30 AM' : '4:00 PM';
       return res.status(400).json({
-        message: `This day is locked — it's within ${DIET_LOCK_DAYS} days of delivery and stock has already been planned against it. You can still change any day ${DIET_LOCK_DAYS}+ days out.`
+        message: `Too late to change today's ${mealSlot} — the ${cutoffLabel} cutoff has already passed.`
       });
     }
 
@@ -659,17 +668,19 @@ const updateMealSchedule = async (req, res) => {
   }
 };
 
-// Safety ceiling on how far ahead the admin can pull this report — independent
-// of DIET_LOCK_DAYS (that's the separate, unrelated rule for when a "both"
-// subscriber's own veg/non-veg preference stops being editable).
+// Safety ceiling on how far ahead the admin can pull this report, and the
+// default/minimum window shown — independent of the dietary-preference lock
+// rule above (that's about when a "both" subscriber's own choice stops being
+// editable, not about how many days this report spans).
 const DIETARY_REPORT_MAX_DAYS = 30;
+const DEFAULT_REPORT_DAYS = 3;
 
 const getDietaryStockReport = async (req, res) => {
   try {
     const todayStart = todayCalendarDateUTC();
     const requestedDays = Math.min(
       DIETARY_REPORT_MAX_DAYS,
-      Math.max(DIET_LOCK_DAYS, Number(req.query.days) || DIET_LOCK_DAYS)
+      Math.max(DEFAULT_REPORT_DAYS, Number(req.query.days) || DEFAULT_REPORT_DAYS)
     );
     const windowEnd = addCalendarDays(todayStart, requestedDays - 1);
 
@@ -717,7 +728,8 @@ const getDietaryStockReport = async (req, res) => {
       const dateKey = calendarDateKey(date);
       const counts = {
         date: dateKey,
-        locked: isDateLocked(date, todayStart),
+        lunchLocked: isDateLocked(date, 'lunch', todayStart),
+        dinnerLocked: isDateLocked(date, 'dinner', todayStart),
         lunch: { veg: 0, nonVeg: 0 },
         dinner: { veg: 0, nonVeg: 0 }
       };
