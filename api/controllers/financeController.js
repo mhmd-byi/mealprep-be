@@ -39,19 +39,28 @@ const pricePerMealOf = (sub) => {
 
 // Sums each delivery's pricePerMealOf, bucketed by IST calendar day/week/month
 // of its delivery date (not of the subscription's purchase date) — shared by
-// the main dashboard (per-bucket + totals) and the daily sales report.
-const actualSaleByBucket = async (queryStart, queryEnd, granularity) => {
+// the main dashboard (per-bucket totals + by-plan breakdown) and the daily
+// sales report.
+const actualSaleBreakdown = async (queryStart, queryEnd, granularity) => {
   const deliveries = await MealDelivery.find({ date: { $gte: queryStart, $lte: queryEnd } });
   const subIds = [...new Set(deliveries.map((d) => d.subscriptionId.toString()))];
   const subs = await Subscription.find({ _id: { $in: subIds } });
-  const pricePerMealBySubId = new Map(subs.map((sub) => [sub._id.toString(), pricePerMealOf(sub)]));
+  const subById = new Map(subs.map((sub) => [sub._id.toString(), sub]));
 
-  const totalsByKey = {};
+  const byBucket = {};
+  const byPlan = {};
+  let total = 0;
   deliveries.forEach((delivery) => {
-    const key = bucketKeyOfTimestamp(delivery.date, granularity);
-    totalsByKey[key] = (totalsByKey[key] || 0) + (pricePerMealBySubId.get(delivery.subscriptionId.toString()) || 0);
+    const sub = subById.get(delivery.subscriptionId.toString());
+    const amount = pricePerMealOf(sub);
+    total += amount;
+
+    const bucketKey = bucketKeyOfTimestamp(delivery.date, granularity);
+    byBucket[bucketKey] = (byBucket[bucketKey] || 0) + amount;
+
+    if (sub) byPlan[sub.plan] = (byPlan[sub.plan] || 0) + amount;
   });
-  return totalsByKey;
+  return { byBucket, byPlan, total };
 };
 
 // A bucket spans one calendar day, one Monday-start week, or one calendar
@@ -167,7 +176,7 @@ const getFinanceDashboard = async (req, res) => {
     const queryStart = bucketStart;
     const queryEnd = new Date(addCalendarDays(bucketEnd, 1).getTime() - 1); // end-of-day of the last bucket day
 
-    const [subscriptions, expenses, categories, allSubsForFirstPurchase, actualSaleTotalsByKey] = await Promise.all([
+    const [subscriptions, expenses, categories, allSubsForFirstPurchase, actualSaleResult] = await Promise.all([
       Subscription.find({ createdAt: { $gte: queryStart, $lte: queryEnd } }),
       Expense.find({ date: { $gte: queryStart, $lte: queryEnd } }),
       ExpenseCategory.find(),
@@ -175,7 +184,7 @@ const getFinanceDashboard = async (req, res) => {
       // needed to know each user's very first-ever subscription, to classify
       // in-range subscriptions as new vs recurring.
       Subscription.find({}, 'userId createdAt'),
-      actualSaleByBucket(queryStart, queryEnd, granularity)
+      actualSaleBreakdown(queryStart, queryEnd, granularity)
     ]);
 
     const byBucket = {};
@@ -184,7 +193,7 @@ const getFinanceDashboard = async (req, res) => {
         month: key,
         label: bucketLabel(key, granularity),
         revenue: 0,
-        actualSale: actualSaleTotalsByKey[key] || 0,
+        actualSale: actualSaleResult.byBucket[key] || 0,
         subscriptionCount: 0,
         expenses: 0,
         newCount: 0,
@@ -244,7 +253,7 @@ const getFinanceDashboard = async (req, res) => {
 
     const series = bucketKeys.map((key) => {
       const row = byBucket[key];
-      return { ...row, profit: row.revenue - row.expenses };
+      return { ...row, profit: row.revenue - row.expenses, actualProfit: row.actualSale - row.expenses };
     });
 
     const totals = series.reduce(
@@ -253,11 +262,12 @@ const getFinanceDashboard = async (req, res) => {
         actualSale: acc.actualSale + row.actualSale,
         expenses: acc.expenses + row.expenses,
         profit: acc.profit + row.profit,
+        actualProfit: acc.actualProfit + row.actualProfit,
         subscriptionCount: acc.subscriptionCount + row.subscriptionCount,
         newCount: acc.newCount + row.newCount,
         recurringCount: acc.recurringCount + row.recurringCount
       }),
-      { revenue: 0, actualSale: 0, expenses: 0, profit: 0, subscriptionCount: 0, newCount: 0, recurringCount: 0 }
+      { revenue: 0, actualSale: 0, expenses: 0, profit: 0, actualProfit: 0, subscriptionCount: 0, newCount: 0, recurringCount: 0 }
     );
 
     const currentSpanDays = diffInCalendarDays(bucketEnd, bucketStart) + 1;
@@ -265,16 +275,17 @@ const getFinanceDashboard = async (req, res) => {
     const prevBucketStart = addCalendarDays(prevBucketEnd, -(currentSpanDays - 1));
     const prevQueryEnd = new Date(addCalendarDays(prevBucketEnd, 1).getTime() - 1);
 
-    const [prevSubscriptions, prevExpenses, prevActualSaleByKey] = await Promise.all([
+    const [prevSubscriptions, prevExpenses, prevActualSaleResult] = await Promise.all([
       Subscription.find({ createdAt: { $gte: prevBucketStart, $lte: prevQueryEnd } }),
       Expense.find({ date: { $gte: prevBucketStart, $lte: prevQueryEnd } }),
-      actualSaleByBucket(prevBucketStart, prevQueryEnd, 'day')
+      actualSaleBreakdown(prevBucketStart, prevQueryEnd, 'day')
     ]);
 
     const prevRevenue = prevSubscriptions.reduce((sum, sub) => sum + computeNetRevenue(sub), 0);
-    const prevActualSale = Object.values(prevActualSaleByKey).reduce((sum, v) => sum + v, 0);
+    const prevActualSale = prevActualSaleResult.total;
     const prevExpensesTotal = prevExpenses.reduce((sum, exp) => sum + exp.amount, 0);
     const prevProfit = prevRevenue - prevExpensesTotal;
+    const prevActualProfit = prevActualSale - prevExpensesTotal;
     const prevSubscriptionCount = prevSubscriptions.length;
 
     const percentChange = (current, previous) => {
@@ -287,6 +298,7 @@ const getFinanceDashboard = async (req, res) => {
       actualSale: prevActualSale,
       expenses: prevExpensesTotal,
       profit: prevProfit,
+      actualProfit: prevActualProfit,
       subscriptionCount: prevSubscriptionCount
     };
     const changePercent = {
@@ -294,8 +306,18 @@ const getFinanceDashboard = async (req, res) => {
       actualSale: percentChange(totals.actualSale, prevActualSale),
       expenses: percentChange(totals.expenses, prevExpensesTotal),
       profit: percentChange(totals.profit, prevProfit),
+      actualProfit: percentChange(totals.actualProfit, prevActualProfit),
       subscriptionCount: percentChange(totals.subscriptionCount, prevSubscriptionCount)
     };
+
+    // Merge in actual-sale-by-plan so "Actual Sale by Plan" can mirror
+    // "Revenue by Plan" — a plan can appear here even with 0 purchases in
+    // range if it still had deliveries from an earlier purchase.
+    Object.values(planTotals).forEach((row) => { row.actualSale = 0; });
+    Object.entries(actualSaleResult.byPlan).forEach(([plan, amount]) => {
+      if (!planTotals[plan]) planTotals[plan] = { plan, count: 0, revenue: 0, actualSale: 0 };
+      planTotals[plan].actualSale = amount;
+    });
 
     const planBreakdown = Object.values(planTotals).sort((a, b) => b.revenue - a.revenue);
 
@@ -341,9 +363,9 @@ const getFinanceDashboard = async (req, res) => {
     const carbBreakdown = Object.values(carbTotals).sort((a, b) => b.meals - a.meals);
 
     const todayBounds = istDayBoundsUTC(calendarDateKey(today));
-    const [todaySubscriptions, todayActualSaleByKey] = await Promise.all([
+    const [todaySubscriptions, todayActualSaleResult] = await Promise.all([
       Subscription.find({ createdAt: { $gte: todayBounds.start, $lte: todayBounds.end } }),
-      actualSaleByBucket(todayBounds.start, todayBounds.end, 'day')
+      actualSaleBreakdown(todayBounds.start, todayBounds.end, 'day')
     ]);
     const todaySales = todaySubscriptions.reduce(
       (acc, sub) => {
@@ -353,7 +375,7 @@ const getFinanceDashboard = async (req, res) => {
       },
       { revenue: 0, subscriptionCount: 0 }
     );
-    todaySales.actualSale = Object.values(todayActualSaleByKey).reduce((sum, v) => sum + v, 0);
+    todaySales.actualSale = todayActualSaleResult.total;
 
     res.json({
       series,
