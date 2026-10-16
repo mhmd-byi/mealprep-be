@@ -497,17 +497,21 @@ const getDeliveredMeals = async (req, res) => {
       Subscription.find({
         status: { $in: ['completed', 'cancelled'] },
         updatedAt: { $gte: dayStart, $lte: dayEnd }
-      }).populate('userId', 'firstName lastName mobile').exec()
+      }).populate('userId', 'firstName lastName mobile role').exec()
     ]);
 
     const userIds = [...new Set(deliveredMeals.map((m) => m.userId.toString()))];
-    const users = await User.find({ _id: { $in: userIds } }, 'firstName lastName mobile').exec();
+    const users = await User.find({ _id: { $in: userIds } }, 'firstName lastName mobile role').exec();
     const userById = new Map(users.map((u) => [u._id.toString(), u]));
 
+    // Admin accounts sometimes carry their own subscription for testing the
+    // customer flow — those are never real deliveries and shouldn't appear
+    // here alongside actual customers.
     const lunch = [];
     const dinner = [];
     deliveredMeals.forEach((meal) => {
       const user = userById.get(meal.userId.toString());
+      if (user && user.role !== 'user') return;
       const row = {
         userId: meal.userId,
         name: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
@@ -518,14 +522,16 @@ const getDeliveredMeals = async (req, res) => {
       (meal.mealType === 'lunch' ? lunch : dinner).push(row);
     });
 
-    const endedList = endedSubscriptions.map((sub) => ({
-      userId: sub.userId?._id || null,
-      name: sub.userId ? `${sub.userId.firstName} ${sub.userId.lastName}` : 'Unknown User',
-      mobile: sub.userId?.mobile || '',
-      plan: sub.plan,
-      status: sub.status,
-      endedAt: sub.updatedAt
-    }));
+    const endedList = endedSubscriptions
+      .filter((sub) => !sub.userId || sub.userId.role === 'user')
+      .map((sub) => ({
+        userId: sub.userId?._id || null,
+        name: sub.userId ? `${sub.userId.firstName} ${sub.userId.lastName}` : 'Unknown User',
+        mobile: sub.userId?.mobile || '',
+        plan: sub.plan,
+        status: sub.status,
+        endedAt: sub.updatedAt
+      }));
 
     res.json({
       date,

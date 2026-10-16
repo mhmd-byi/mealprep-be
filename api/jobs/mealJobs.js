@@ -4,6 +4,7 @@ const Subscription = require('../models/subscriptionModel');
 const Holiday = require('../models/holidayModel');
 const MealDelivery = require('../models/mealDeliveryModel');
 const Activity = require('../models/activityModel');
+const User = require('../models/userModel');
 const mongoose = require('mongoose');
 const {
   IST_ZONE,
@@ -87,16 +88,23 @@ async function subtractMealBalance(mealType) {
 
   console.log(`Excluding ${userIdsToExclude.length} users due to meal cancellations for ${mealType}:`, userIdsToExclude);
 
+  // Admin accounts sometimes carry their own subscription (e.g. for testing
+  // the customer flow) — those are never real deliveries and must never be
+  // decremented or logged as one. Same exclusion getUserForMealDelivery's
+  // "Scheduled" list already applies.
+  const adminUsers = await User.find({ role: 'admin' }, '_id').lean();
+  const adminUserIds = adminUsers.map((u) => u._id);
+
   // Build a dynamic update object based on mealType
   let updateField = `${mealType}Meals`; // Assumes the field names are 'lunchMeals' and 'dinnerMeals'
 
   // Build query to:
-  // 1. Exclude users with active cancellations
+  // 1. Exclude users with active cancellations and admin accounts
   // 2. Only include users whose subscription has started (subscriptionStartDate <= today)
   // 3. Only include users with meals remaining
   // 4. Only touch ACTIVE subscriptions — never queued ones
   const query = {
-    userId: { $nin: userIdsToExclude },
+    userId: { $nin: [...userIdsToExclude, ...adminUserIds] },
     status: 'active',
     [updateField]: { $gt: 0 }
   };

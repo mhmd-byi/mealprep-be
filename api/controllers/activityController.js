@@ -69,21 +69,29 @@ const getRecentActivities = async (req, res) => {
       .limit(limit);
 
     const userIds = [...new Set(activities.map((a) => String(a.userId)))];
-    const users = await User.find({ _id: { $in: userIds } }, 'firstName lastName mobile');
+    const users = await User.find({ _id: { $in: userIds } }, 'firstName lastName mobile role');
     const userById = new Map(users.map((u) => [String(u._id), u]));
 
-    const enriched = activities.map((a) => {
-      const user = userById.get(String(a.userId));
-      return {
-        _id: a._id,
-        category: a.category || 'other',
-        description: a.description,
-        createdAt: a.createdAt,
-        userId: a.userId,
-        name: user ? `${user.firstName} ${user.lastName}` : 'Unknown',
-        mobile: user?.mobile || ''
-      };
-    });
+    // Admin accounts sometimes carry their own subscription/activity for
+    // testing the customer flow — keep that out of a feed meant to show
+    // real customer activity.
+    const enriched = activities
+      .filter((a) => {
+        const user = userById.get(String(a.userId));
+        return !user || user.role === 'user';
+      })
+      .map((a) => {
+        const user = userById.get(String(a.userId));
+        return {
+          _id: a._id,
+          category: a.category || 'other',
+          description: a.description,
+          createdAt: a.createdAt,
+          userId: a.userId,
+          name: user ? `${user.firstName} ${user.lastName}` : 'Unknown',
+          mobile: user?.mobile || ''
+        };
+      });
 
     res.json({ activities: enriched, windowHours: hours });
   } catch (error) {
