@@ -153,7 +153,10 @@ const getUserByMobileNumberAndOtp = async (req, res) => {
 // Get All Users API
 const getAllUsers = async (req, res) => {
   try {
-    const response = await User.find({});
+    // Real customer accounts only — matches getAllUsersWithMealCounts, so an
+    // admin's own login never counts as a "registered user" anywhere this is
+    // used (Dashboard's total count, User Meal Tracking's search list, etc).
+    const response = await User.find({ role: 'user' });
     res.status(200).json({
       users: response
     });
