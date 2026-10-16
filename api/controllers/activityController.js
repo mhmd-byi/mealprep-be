@@ -99,11 +99,15 @@ const sendEmailMailTrap = async (req, res) => {
     email: "hello@app.mealprep.co.in",
     name: "Mealprep",
   };
+  const adminCcEmail = "ermoinzafarsheikh@hotmail.com";
+  const cc = toEmail?.toLowerCase() === adminCcEmail.toLowerCase()
+    ? []
+    : [{ email: adminCcEmail, name: "Mealprep" }];
   client
     .send({
       from: sender,
       to: [{ email: toEmail, name: toName }],
-      cc: [{ email: "ermoinzafarsheikh@hotmail.com", name: "Mealprep" }],
+      cc,
       subject: subject,
       text: text
     })
