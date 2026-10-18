@@ -1,4 +1,4 @@
-const { createActivity, getActivityFromUserId, getRecentActivities, sendEmailMailTrap, sendMessageAiSensy, verifyOtp } = require("../controllers/activityController");
+const { createActivity, getActivityFromUserId, getRecentActivities, sendEmailMailTrap, sendMessageAiSensy, verifyOtp, sendEmailOtp, verifyEmailOtp } = require("../controllers/activityController");
 
 const activityRoutes = function (app) {
   app.route('/activity/add-activity').post(createActivity);
@@ -12,6 +12,10 @@ const activityRoutes = function (app) {
   app.route('/activity/send-otp').post(sendMessageAiSensy)
 
   app.route('/activity/verify-otp').post(verifyOtp)
+
+  app.route('/activity/send-email-otp').post(sendEmailOtp)
+
+  app.route('/activity/verify-email-otp').post(verifyEmailOtp)
 }
 
 module.exports = {
