@@ -501,8 +501,23 @@ const getDeliveredMeals = async (req, res) => {
     ]);
 
     const userIds = [...new Set(deliveredMeals.map((m) => m.userId.toString()))];
-    const users = await User.find({ _id: { $in: userIds } }, 'firstName lastName mobile role').exec();
+    const subscriptionIds = [...new Set(deliveredMeals.map((m) => m.subscriptionId.toString()))];
+    const [users, subscriptions, prefRows] = await Promise.all([
+      User.find({ _id: { $in: userIds } }, 'firstName lastName mobile role').exec(),
+      Subscription.find({ _id: { $in: subscriptionIds } }, 'userId mealType').exec(),
+      MealDietaryPreference.find({ userId: { $in: userIds }, date: parseCalendarDate(date) }).exec()
+    ]);
     const userById = new Map(users.map((u) => [u._id.toString(), u]));
+    const subById = new Map(subscriptions.map((s) => [s._id.toString(), s]));
+    const prefMap = new Map(prefRows.map((r) => [`${r.userId}_${r.mealSlot}`, r.preference]));
+
+    // A "both" meal-type plan's veg/non-veg choice is per-day, so it has to be
+    // resolved per delivery rather than read off the subscription itself.
+    const resolveDietaryType = (meal, sub) => {
+      if (sub?.mealType === 'veg') return 'veg';
+      if (sub?.mealType === 'non-veg') return 'non-veg';
+      return prefMap.get(`${meal.userId}_${meal.mealType}`) || 'veg';
+    };
 
     // Admin accounts sometimes carry their own subscription for testing the
     // customer flow — those are never real deliveries and shouldn't appear
@@ -512,10 +527,12 @@ const getDeliveredMeals = async (req, res) => {
     deliveredMeals.forEach((meal) => {
       const user = userById.get(meal.userId.toString());
       if (user && user.role !== 'user') return;
+      const sub = subById.get(meal.subscriptionId.toString());
       const row = {
         userId: meal.userId,
         name: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
         mobile: user?.mobile || '',
+        dietaryType: resolveDietaryType(meal, sub),
         date: meal.date,
         createdAt: meal.createdAt
       };
@@ -729,7 +746,12 @@ const getDietaryStockReport = async (req, res) => {
       reportDates.push(date);
     }
 
-    const activeSubs = await Subscription.find({ status: 'active' });
+    // Admin accounts sometimes carry their own active subscription for testing
+    // the customer flow — exclude those so they don't inflate the projected
+    // veg/non-veg counts kitchen staff actually prepare for.
+    const adminUsers = await User.find({ role: 'admin' }, '_id').lean();
+    const adminUserIds = adminUsers.map((u) => u._id);
+    const activeSubs = await Subscription.find({ status: 'active', userId: { $nin: adminUserIds } });
 
     const cancellations = await MealCancellation.find({
       startDate: { $lte: reportDates[reportDates.length - 1] || todayStart },
