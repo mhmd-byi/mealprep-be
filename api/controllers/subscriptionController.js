@@ -279,6 +279,15 @@ const getSubscriptionDetails = async (req, res) => {
           mealType: 'both'
         };
 
+    const cancellations = await MealCancellation.find({
+      userId,
+      endDate: { $gte: todayCalendarDateUTC() }
+    }).sort({ startDate: 1 }).lean();
+
+    const holidays = await Holiday.find({
+      date: { $gte: todayCalendarDateUTC() }
+    }).sort({ date: 1 }).lean();
+
     const response = {
       isSubscribed: totalAvailableMeals > 0,
       // Keep 'subscription' key for backward compat with existing frontend code
@@ -287,7 +296,9 @@ const getSubscriptionDetails = async (req, res) => {
       // detail, one entry per active plan) for new UI
       currentPlan,
       currentPlans: enrichedPlans,
-      nextPlan: queuedSub ? queuedSub.toObject() : null
+      nextPlan: queuedSub ? queuedSub.toObject() : null,
+      cancellations,
+      holidays
     };
 
     res.json(response);

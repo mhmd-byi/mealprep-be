@@ -274,10 +274,13 @@ const getUserById = async (req, res) => {
       return acc;
     }, { lunchMeals: 0, dinnerMeals: 0, nextDayLunchMeals: 0, nextDayDinnerMeals: 0 });
 
+    const cancellations = await MealCancellation.find({ userId: user._id }).sort({ startDate: 1 }).lean();
+
     res.json({
       ...user,
       mealCounts,
       subscriptions,
+      cancellations,
     });
   } catch (err) {
     console.error('Error fetching user by ID:', err);
