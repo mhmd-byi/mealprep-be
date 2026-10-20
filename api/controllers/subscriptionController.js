@@ -1244,6 +1244,23 @@ const cancelQueuedPlan = async (req, res) => {
   }
 };
 
+// Returns the user's own upcoming/active cancellation records so the frontend
+// can skip cancelled dates when computing "Next Delivery".
+const getUserCancellations = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const today = todayCalendarDateUTC();
+    const cancellations = await MealCancellation.find({
+      userId,
+      endDate: { $gte: today }
+    }).sort({ startDate: 1 }).lean();
+    res.json(cancellations);
+  } catch (error) {
+    console.error('Error fetching user cancellations:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
 module.exports = {
   createSubscription,
   getSubscriptionDetails,
@@ -1259,6 +1276,7 @@ module.exports = {
   getActiveSubscriptionCounts,
   handleRazorpayWebhook,
   cancelQueuedPlan,
+  getUserCancellations,
   // Shared with adminSubscriptionController / reminderJobs — same rules
   // customer checkout uses
   adjustMealCountsForTime,

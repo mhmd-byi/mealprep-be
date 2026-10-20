@@ -12,7 +12,8 @@ const {
   verifyPayment,
   getActiveSubscriptionCounts,
   handleRazorpayWebhook,
-  cancelQueuedPlan
+  cancelQueuedPlan,
+  getUserCancellations
 } = require('../controllers/subscriptionController');
 
 const subscriptionRoutes = function(app) {
@@ -33,6 +34,8 @@ const subscriptionRoutes = function(app) {
   app.route('/subscription/active-subscription-counts').get(getActiveSubscriptionCounts);
   // Admin: cancel a queued plan on behalf of a user
   app.route('/subscription/queued/:subscriptionId/cancel').delete(cancelQueuedPlan);
+  // User: fetch own upcoming cancellations (for Next Delivery calculation)
+  app.route('/subscription/:userId/my-cancellations').get(getUserCancellations);
 };
 
 module.exports = {
