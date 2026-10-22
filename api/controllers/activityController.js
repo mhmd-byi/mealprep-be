@@ -3,7 +3,6 @@ const Activity = require('../models/activityModel');
 const axios = require('axios');
 const { MailtrapClient } = require('mailtrap');
 const confirmMobileOtp = require('../models/confirmMobileOtp');
-const confirmEmailOtp = require('../models/confirmEmailOtp');
 const { getUserByMobileNumber } = require('./userController');
 const { requireAdmin } = require('../utils/requireAdmin');
 require('dotenv').config();
@@ -194,56 +193,11 @@ const verifyOtp = async (req, res) => {
   res.status(200).json({ message: 'OTP verified successfully' });
 }
 
-const sendEmailOtp = async (req, res) => {
-  try {
-    const { email, name } = req.body;
-    if (!email) {
-      return res.status(400).json({ message: 'Email is required' });
-    }
-
-    // Catches a typo'd/already-used email before the customer fills out the
-    // rest of the signup form, instead of only failing at final submit.
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ message: 'An account with this email already exists.' });
-    }
-
-    const generateOtp = Math.floor(100000 + Math.random() * 900000);
-    const otp = generateOtp.toString();
-    const saveOtp = new confirmEmailOtp({ email, otp });
-    await saveOtp.save();
-
-    const client = new MailtrapClient({ token: process.env.MAILTRAP_API_TOKEN });
-    await client.send({
-      from: { email: "hello@app.mealprep.co.in", name: "Mealprep" },
-      to: [{ email, name: name || "" }],
-      subject: "Your Mealprep verification code",
-      text: `Your Mealprep verification code is ${otp}. It expires in 5 minutes.\n\nIf you didn't request this, you can ignore this email.`
-    });
-
-    res.status(200).json({ message: 'OTP sent to email' });
-  } catch (error) {
-    console.error('Email OTP sending failed:', error);
-    res.status(500).json({ message: 'Failed to send email OTP', details: error.message });
-  }
-};
-
-const verifyEmailOtp = async (req, res) => {
-  const { email, otp } = req.body;
-  const match = await confirmEmailOtp.findOne({ email, otp });
-  if (!match) {
-    return res.status(400).json({ message: 'Invalid OTP' });
-  }
-  res.status(200).json({ message: 'Email verified successfully' });
-}
-
 module.exports = {
   createActivity,
   getActivityFromUserId,
   getRecentActivities,
   sendEmailMailTrap,
   sendMessageAiSensy,
-  verifyOtp,
-  sendEmailOtp,
-  verifyEmailOtp
+  verifyOtp
 };
