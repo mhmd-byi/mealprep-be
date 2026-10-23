@@ -18,6 +18,8 @@ const {
   calendarDayOfWeek,
   istDayBoundsUTC
 } = require('../utils/dateUtils');
+const { requireAuth } = require('../utils/requireAuth');
+const { requireAdmin } = require('../utils/requireAdmin');
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -310,12 +312,21 @@ const getSubscriptionDetails = async (req, res) => {
 
 const cancelMealRequest = async (req, res) => {
   try {
+    const caller = await requireAuth(req, res);
+    if (!caller) return;
+
     const { userId, startDate, endDate, mealType } = req.body;
 
     if (!userId || !startDate || !endDate || !mealType) {
-      return res.status(400).json({ 
-        message: 'Missing required fields: userId, startDate, endDate, and mealType are required.' 
+      return res.status(400).json({
+        message: 'Missing required fields: userId, startDate, endDate, and mealType are required.'
       });
+    }
+
+    // A customer can only cancel their own meals; an admin can cancel on
+    // behalf of any customer.
+    if (caller.role !== 'admin' && caller._id.toString() !== userId.toString()) {
+      return res.status(403).json({ message: 'You can only cancel your own meals.' });
     }
 
     // Duplicate cancellation check
@@ -1195,6 +1206,9 @@ const handleRazorpayWebhook = async (req, res) => {
 // Admin: cancel a queued subscription (user cannot cancel their own queued plan)
 const cancelQueuedPlan = async (req, res) => {
   try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
     const { subscriptionId } = req.params;
 
     const sub = await Subscription.findById(subscriptionId);
