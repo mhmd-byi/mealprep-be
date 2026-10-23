@@ -63,12 +63,18 @@ const subscriptionSchema = new Schema(
       enum: ['active', 'queued', 'completed', 'cancelled'],
       default: 'active'
     },
-    // Tracks which expiration-reminder emails have already gone out for this
-    // subscription, so the daily reminder job never sends the same one twice.
+    // Tracks which expiration-reminder emails (and, separately, WhatsApp
+    // messages) have already gone out for this subscription, so the daily
+    // reminder job never sends the same one twice. Email and WhatsApp are
+    // independent flags per threshold so one channel failing never blocks
+    // or duplicates the other.
     remindersSent: {
       sevenDay: { type: Boolean, default: false },
       threeDay: { type: Boolean, default: false },
-      oneDay: { type: Boolean, default: false }
+      oneDay: { type: Boolean, default: false },
+      sevenDayWhatsapp: { type: Boolean, default: false },
+      threeDayWhatsapp: { type: Boolean, default: false },
+      oneDayWhatsapp: { type: Boolean, default: false }
     }
   },
   {

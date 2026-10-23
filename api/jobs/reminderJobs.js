@@ -1,4 +1,5 @@
 const cron = require('node-cron');
+const axios = require('axios');
 const { DateTime } = require('luxon');
 const { MailtrapClient } = require('mailtrap');
 const Subscription = require('../models/subscriptionModel');
@@ -17,6 +18,8 @@ require('dotenv').config();
 
 const TIMEZONE = IST_ZONE;
 const THRESHOLD_FIELD = { 7: 'sevenDay', 3: 'threeDay', 1: 'oneDay' };
+// WhatsApp only goes out at 3-day and 1-day — 7-day stays email-only.
+const WHATSAPP_FIELD = { 3: 'threeDayWhatsapp', 1: 'oneDayWhatsapp' };
 const REMINDER_THRESHOLDS = Object.keys(THRESHOLD_FIELD).map(Number);
 // Meals-remaining is the day-proxy (see checkAndSendExpirationReminders), so a
 // plan can never have more runway than this many delivery days.
@@ -32,6 +35,28 @@ const sendReminderEmail = async (toEmail, toName, subject, text) => {
     subject,
     text
   });
+};
+
+const sendReminderWhatsApp = async (mobileNumber, customerName, templateParams) => {
+  const campaignName = process.env.AISENSY_PLAN_ENDING_CAMPAIGN;
+  if (!campaignName) return false;
+  if (!mobileNumber || !process.env.AISENSY_URL || !process.env.AISENSY_API_KEY) {
+    console.error('Missing AISENSY configuration or mobile number for WhatsApp reminder');
+    return false;
+  }
+
+  await axios({
+    method: 'POST',
+    url: process.env.AISENSY_URL,
+    data: {
+      apiKey: process.env.AISENSY_API_KEY,
+      campaignName,
+      destination: mobileNumber,
+      userName: customerName || 'User',
+      templateParams
+    }
+  });
+  return true;
 };
 
 // Walks forward day by day from today, skipping Sundays and any date already
@@ -90,7 +115,7 @@ async function checkAndSendExpirationReminders() {
     );
 
     const activeSubs = await Subscription.find({ status: 'active' })
-      .populate('userId', 'firstName lastName email');
+      .populate('userId', 'firstName lastName email mobile');
     if (activeSubs.length === 0) {
       console.log('No active subscriptions to check.');
       return;
@@ -104,6 +129,7 @@ async function checkAndSendExpirationReminders() {
     });
 
     let sentCount = 0;
+    let whatsappSentCount = 0;
 
     for (const sub of activeSubs) {
       if (!sub.userId || !sub.userId.email) {
@@ -124,7 +150,11 @@ async function checkAndSendExpirationReminders() {
       if (!REMINDER_THRESHOLDS.includes(daysUntil)) continue;
 
       const fieldKey = THRESHOLD_FIELD[daysUntil];
-      if (sub.remindersSent && sub.remindersSent[fieldKey]) continue;
+      const waFieldKey = WHATSAPP_FIELD[daysUntil];
+      const emailAlreadySent = !!(sub.remindersSent && sub.remindersSent[fieldKey]);
+      const whatsappApplies = !!waFieldKey;
+      const whatsappAlreadySent = !whatsappApplies || !!(sub.remindersSent && sub.remindersSent[waFieldKey]);
+      if (emailAlreadySent && whatsappAlreadySent) continue;
 
       const subCoverage = getMealCoverage(sub);
       const userQueued = queuedByUser[sub.userId._id.toString()] || [];
@@ -134,19 +164,40 @@ async function checkAndSendExpirationReminders() {
       });
 
       const customerName = `${sub.userId.firstName} ${sub.userId.lastName}`;
-      const { subject, text } = buildReminderEmail(daysUntil, sub.plan, customerName, exhaustionDate, nextPlan);
 
-      try {
-        await sendReminderEmail(sub.userId.email, customerName, subject, text);
-        await Subscription.findByIdAndUpdate(sub._id, { [`remindersSent.${fieldKey}`]: true });
-        sentCount++;
-        console.log(`Sent ${daysUntil}-day expiration reminder to ${sub.userId.email} for subscription ${sub._id}`);
-      } catch (error) {
-        console.error(`Failed to send ${daysUntil}-day reminder for subscription ${sub._id}:`, error.message);
+      if (!emailAlreadySent) {
+        const { subject, text } = buildReminderEmail(daysUntil, sub.plan, customerName, exhaustionDate, nextPlan);
+        try {
+          await sendReminderEmail(sub.userId.email, customerName, subject, text);
+          await Subscription.findByIdAndUpdate(sub._id, { [`remindersSent.${fieldKey}`]: true });
+          sentCount++;
+          console.log(`Sent ${daysUntil}-day expiration email to ${sub.userId.email} for subscription ${sub._id}`);
+        } catch (error) {
+          console.error(`Failed to send ${daysUntil}-day email reminder for subscription ${sub._id}:`, error.message);
+        }
+      }
+
+      if (!whatsappAlreadySent) {
+        const dayWord = daysUntil === 1 ? 'day' : 'days';
+        const dateLabel = formatDateLabel(exhaustionDate);
+        try {
+          const sent = await sendReminderWhatsApp(
+            sub.userId.mobile,
+            customerName,
+            [customerName, sub.plan, String(daysUntil), dayWord, dateLabel]
+          );
+          if (sent) {
+            await Subscription.findByIdAndUpdate(sub._id, { [`remindersSent.${waFieldKey}`]: true });
+            whatsappSentCount++;
+            console.log(`Sent ${daysUntil}-day expiration WhatsApp message to ${sub.userId.mobile} for subscription ${sub._id}`);
+          }
+        } catch (error) {
+          console.error(`Failed to send ${daysUntil}-day WhatsApp reminder for subscription ${sub._id}:`, error.message);
+        }
       }
     }
 
-    console.log(`Expiration reminder check complete. Sent ${sentCount} email(s).`);
+    console.log(`Expiration reminder check complete. Sent ${sentCount} email(s), ${whatsappSentCount} WhatsApp message(s).`);
   } catch (error) {
     console.error('Error checking expiration reminders:', error);
   }
