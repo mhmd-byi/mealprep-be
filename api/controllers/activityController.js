@@ -5,6 +5,7 @@ const { MailtrapClient } = require('mailtrap');
 const confirmMobileOtp = require('../models/confirmMobileOtp');
 const { getUserByMobileNumber } = require('./userController');
 const { requireAdmin } = require('../utils/requireAdmin');
+const { isExcludedUser } = require('../utils/excludedAccounts');
 require('dotenv').config();
 
 const createActivity = async (req, res) => {
@@ -69,16 +70,16 @@ const getRecentActivities = async (req, res) => {
       .limit(limit);
 
     const userIds = [...new Set(activities.map((a) => String(a.userId)))];
-    const users = await User.find({ _id: { $in: userIds } }, 'firstName lastName mobile role');
+    const users = await User.find({ _id: { $in: userIds } }, 'firstName lastName email mobile role');
     const userById = new Map(users.map((u) => [String(u._id), u]));
 
-    // Admin accounts sometimes carry their own subscription/activity for
-    // testing the customer flow — keep that out of a feed meant to show
-    // real customer activity.
+    // Admin accounts, plus the known test customer account, sometimes carry
+    // their own subscription/activity for testing the customer flow — keep
+    // that out of a feed meant to show real customer activity.
     const enriched = activities
       .filter((a) => {
         const user = userById.get(String(a.userId));
-        return !user || user.role === 'user';
+        return !user || !isExcludedUser(user);
       })
       .map((a) => {
         const user = userById.get(String(a.userId));

@@ -21,13 +21,14 @@ const {
 const { requireAuth } = require('../utils/requireAuth');
 const { requireAdmin } = require('../utils/requireAdmin');
 const { sendWhatsAppMessage } = require('../utils/sendWhatsApp');
+const { getExcludedUserIds, isExcludedUser } = require('../utils/excludedAccounts');
 
 // Admin/staff accounts sometimes carry their own test subscription — never
 // notify those, only real customers.
 const notifyPurchase = async (userId, plan, mealCount, startDate) => {
   try {
     const user = await User.findById(userId);
-    if (!user || user.role !== 'user') return;
+    if (isExcludedUser(user)) return;
     sendWhatsAppMessage({
       campaignEnvVar: 'AISENSY_SUBSCRIPTION_PURCHASED_CAMPAIGN',
       mobileNumber: user.mobile,
@@ -439,7 +440,7 @@ const cancelMealRequest = async (req, res) => {
         // common (self-cancel) case; only look it up again when an admin is
         // cancelling on behalf of someone else.
         const targetUser = caller._id.toString() === userId.toString() ? caller : await User.findById(userId);
-        if (!targetUser || targetUser.role !== 'user') return;
+        if (isExcludedUser(targetUser)) return;
         sendWhatsAppMessage({
           campaignEnvVar: 'AISENSY_CANCELLATION_CAMPAIGN',
           mobileNumber: targetUser.mobile,
@@ -505,8 +506,14 @@ const getCancelledMeals = async (req, res) => {
       });
     };
 
+    // Admin accounts and the known test customer account shouldn't show up
+    // in a report meant to reflect real customer cancellations.
     const formattedMeals = cancelledMeals
       .filter(meal => hasActiveCoverage(meal.userId, meal.mealType))
+      .filter(meal => {
+        const user = userById.get(meal.userId.toString());
+        return !user || !isExcludedUser(user);
+      })
       .map(meal => {
         const user = userById.get(meal.userId.toString());
         return {
@@ -556,13 +563,13 @@ const getDeliveredMeals = async (req, res) => {
       Subscription.find({
         status: { $in: ['completed', 'cancelled'] },
         updatedAt: { $gte: dayStart, $lte: dayEnd }
-      }).populate('userId', 'firstName lastName mobile role').exec()
+      }).populate('userId', 'firstName lastName email mobile role').exec()
     ]);
 
     const userIds = [...new Set(deliveredMeals.map((m) => m.userId.toString()))];
     const subscriptionIds = [...new Set(deliveredMeals.map((m) => m.subscriptionId.toString()))];
     const [users, subscriptions, prefRows] = await Promise.all([
-      User.find({ _id: { $in: userIds } }, 'firstName lastName mobile role').exec(),
+      User.find({ _id: { $in: userIds } }, 'firstName lastName email mobile role').exec(),
       Subscription.find({ _id: { $in: subscriptionIds } }, 'userId mealType').exec(),
       MealDietaryPreference.find({ userId: { $in: userIds }, date: parseCalendarDate(date) }).exec()
     ]);
@@ -578,14 +585,14 @@ const getDeliveredMeals = async (req, res) => {
       return prefMap.get(`${meal.userId}_${meal.mealType}`) || 'veg';
     };
 
-    // Admin accounts sometimes carry their own subscription for testing the
-    // customer flow — those are never real deliveries and shouldn't appear
-    // here alongside actual customers.
+    // Admin accounts (and the known test customer account) sometimes carry
+    // their own subscription for testing the customer flow — those are never
+    // real deliveries and shouldn't appear here alongside actual customers.
     const lunch = [];
     const dinner = [];
     deliveredMeals.forEach((meal) => {
       const user = userById.get(meal.userId.toString());
-      if (user && user.role !== 'user') return;
+      if (user && isExcludedUser(user)) return;
       const sub = subById.get(meal.subscriptionId.toString());
       const row = {
         userId: meal.userId,
@@ -599,7 +606,7 @@ const getDeliveredMeals = async (req, res) => {
     });
 
     const endedList = endedSubscriptions
-      .filter((sub) => !sub.userId || sub.userId.role === 'user')
+      .filter((sub) => !sub.userId || !isExcludedUser(sub.userId))
       .map((sub) => ({
         userId: sub.userId?._id || null,
         name: sub.userId ? `${sub.userId.firstName} ${sub.userId.lastName}` : 'Unknown User',
@@ -773,7 +780,7 @@ const updateMealSchedule = async (req, res) => {
     (async () => {
       try {
         const user = await User.findById(userId);
-        if (!user || user.role !== 'user') return;
+        if (isExcludedUser(user)) return;
         sendWhatsAppMessage({
           campaignEnvVar: 'AISENSY_MEAL_PREFERENCE_CAMPAIGN',
           mobileNumber: user.mobile,
@@ -820,12 +827,12 @@ const getDietaryStockReport = async (req, res) => {
       reportDates.push(date);
     }
 
-    // Admin accounts sometimes carry their own active subscription for testing
-    // the customer flow — exclude those so they don't inflate the projected
-    // veg/non-veg counts kitchen staff actually prepare for.
-    const adminUsers = await User.find({ role: 'admin' }, '_id').lean();
-    const adminUserIds = adminUsers.map((u) => u._id);
-    const activeSubs = await Subscription.find({ status: 'active', userId: { $nin: adminUserIds } });
+    // Admin accounts, plus the known test customer account, sometimes carry
+    // their own active subscription for testing the customer flow — exclude
+    // those so they don't inflate the projected veg/non-veg counts kitchen
+    // staff actually prepare for.
+    const excludedUserIds = await getExcludedUserIds();
+    const activeSubs = await Subscription.find({ status: 'active', userId: { $nin: excludedUserIds } });
 
     const cancellations = await MealCancellation.find({
       startDate: { $lte: reportDates[reportDates.length - 1] || todayStart },
@@ -947,9 +954,9 @@ const getUserForMealDelivery = async (req, res) => {
       .populate('userId', 'firstName lastName email mobile postalAddress role')
       .exec();
 
-    // Filter users to only include those with role 'user'
+    // Filter out admin accounts and the known test customer account
     const filteredUsersWithMeals = usersWithMeals.filter(subscription =>
-      subscription.userId && subscription.userId.role === 'user'
+      subscription.userId && !isExcludedUser(subscription.userId)
     );
 
     // For "Both" subscribers, resolve today's actual Veg/Non-Veg pick so kitchen
@@ -1142,7 +1149,7 @@ const getActiveSubscriptionCounts = async (req, res) => {
     let trialCount = 0;
 
     activeSubscriptions.forEach(sub => {
-      if (sub.userId && sub.userId.role === 'user' && sub.plan) {
+      if (sub.userId && !isExcludedUser(sub.userId) && sub.plan) {
         if (/Weekly/i.test(sub.plan)) {
           weeklyCount++;
         } else if (/Monthly/i.test(sub.plan)) {

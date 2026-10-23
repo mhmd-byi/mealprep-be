@@ -4,6 +4,7 @@ const Meal = require('../models/mealModel');
 const CustomiseMeal = require('../models/customiseMealModel');
 const Activity = require('../models/activityModel');
 const { sendWhatsAppMessage } = require('../utils/sendWhatsApp');
+const { isExcludedUser } = require('../utils/excludedAccounts');
 const {
   currentISTMinutesSinceMidnight,
   todayCalendarDateUTC,
@@ -169,7 +170,7 @@ const customizeMealRequest = async (req, res) => {
       (async () => {
         try {
           const user = await User.findById(userId);
-          if (!user || user.role !== 'user') return;
+          if (isExcludedUser(user)) return;
           sendWhatsAppMessage({
             campaignEnvVar: 'AISENSY_CUSTOMISATION_CAMPAIGN',
             mobileNumber: user.mobile,
@@ -220,12 +221,19 @@ const getCustomisedMealRequests = async (req, res) => {
 
       // Fetch user details based on the extracted user IDs
       const users = await User.find({ _id: { $in: userIds }});
+      const userById = new Map(users.map(u => [u._id.toString(), u]));
 
-      // Map the user details back onto the meal data
-      const mealsWithUserDetails = meals.map(meal => ({
-        ...meal.toObject(),
-        user: users.find(user => user._id.toString() === meal.userId.toString())
-      }));
+      // Admin accounts and the known test customer account shouldn't show up
+      // in a report meant to reflect real customer requests.
+      const mealsWithUserDetails = meals
+        .filter(meal => {
+          const user = userById.get(meal.userId.toString());
+          return !user || !isExcludedUser(user);
+        })
+        .map(meal => ({
+          ...meal.toObject(),
+          user: userById.get(meal.userId.toString())
+        }));
 
       res.json(mealsWithUserDetails);
     }

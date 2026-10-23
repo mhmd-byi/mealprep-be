@@ -6,6 +6,7 @@ const ExpenseCategory = require('../models/expenseCategoryModel');
 const MealDelivery = require('../models/mealDeliveryModel');
 const User = require('../models/userModel');
 const { requireAdmin } = require('../utils/requireAdmin');
+const { getExcludedUserIds } = require('../utils/excludedAccounts');
 const { PLAN_PRICING, hasRealPayment, computeNetRevenue } = require('../utils/planPricing');
 const {
   IST_ZONE,
@@ -36,20 +37,6 @@ const pricePerMealOf = (sub) => {
   const pricing = PLAN_PRICING[sub.plan];
   if (!pricing) return 0;
   return pricing.price / pricing.meals;
-};
-
-// Admin/staff accounts, plus the known test customer account used to try out
-// the real signup/subscription flow (ermoinzafar+test@byi.com — a regular
-// 'user'-role account, not an admin login), sometimes carry their own
-// subscription — these financial totals (revenue, plan/payment/carb
-// breakdowns, daily sales) must reflect real paying customers only.
-const TEST_CUSTOMER_EMAILS = ['ermoinzafar+test@byi.com'];
-const getExcludedUserIds = async () => {
-  const users = await User.find(
-    { $or: [{ role: 'admin' }, { email: { $in: TEST_CUSTOMER_EMAILS } }] },
-    '_id'
-  ).lean();
-  return users.map((u) => u._id);
 };
 
 // Sums each delivery's pricePerMealOf, bucketed by IST calendar day/week/month

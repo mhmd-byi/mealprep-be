@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const { MailtrapClient } = require('mailtrap');
 const confirmMobileOtp = require('../models/confirmMobileOtp');
 const { sendWhatsAppMessage } = require('../utils/sendWhatsApp');
+const { TEST_CUSTOMER_EMAILS } = require('../utils/excludedAccounts');
 require('dotenv').config();
 
 const generateToken = (userId, expires, type) => {
@@ -161,9 +162,10 @@ const getUserByMobileNumberAndOtp = async (req, res) => {
 const getAllUsers = async (req, res) => {
   try {
     // Real customer accounts only — matches getAllUsersWithMealCounts, so an
-    // admin's own login never counts as a "registered user" anywhere this is
-    // used (Dashboard's total count, User Meal Tracking's search list, etc).
-    const response = await User.find({ role: 'user' });
+    // admin's own login (or the known test customer account) never counts as
+    // a "registered user" anywhere this is used (Dashboard's total count,
+    // User Meal Tracking's search list, the admin customer-search modals, etc).
+    const response = await User.find({ role: 'user', email: { $nin: TEST_CUSTOMER_EMAILS } });
     res.status(200).json({
       users: response
     });
@@ -177,7 +179,7 @@ const getAllUsersWithMealCounts = async (req, res) => {
     const { plan, activeOnly } = req.query;
 
     const pipeline = [
-      { $match: { role: 'user' } },
+      { $match: { role: 'user', email: { $nin: TEST_CUSTOMER_EMAILS } } },
       { $sort: { createdAt: -1, _id: -1 } },
       // Join Subscriptions
       {
