@@ -38,6 +38,20 @@ const pricePerMealOf = (sub) => {
   return pricing.price / pricing.meals;
 };
 
+// Admin/staff accounts, plus the known test customer account used to try out
+// the real signup/subscription flow (ermoinzafar+test@byi.com — a regular
+// 'user'-role account, not an admin login), sometimes carry their own
+// subscription — these financial totals (revenue, plan/payment/carb
+// breakdowns, daily sales) must reflect real paying customers only.
+const TEST_CUSTOMER_EMAILS = ['ermoinzafar+test@byi.com'];
+const getExcludedUserIds = async () => {
+  const users = await User.find(
+    { $or: [{ role: 'admin' }, { email: { $in: TEST_CUSTOMER_EMAILS } }] },
+    '_id'
+  ).lean();
+  return users.map((u) => u._id);
+};
+
 // Sums each delivery's pricePerMealOf, bucketed by IST calendar day/week/month
 // of its delivery date (not of the subscription's purchase date) — shared by
 // the main dashboard (per-bucket totals + by-plan breakdown) and the daily
@@ -176,9 +190,10 @@ const getFinanceDashboard = async (req, res) => {
 
     const queryStart = bucketStart;
     const queryEnd = new Date(addCalendarDays(bucketEnd, 1).getTime() - 1); // end-of-day of the last bucket day
+    const excludedUserIds = await getExcludedUserIds();
 
     const [subscriptions, expenses, categories, allSubsForFirstPurchase, actualSaleResult, newUsers] = await Promise.all([
-      Subscription.find({ createdAt: { $gte: queryStart, $lte: queryEnd } }),
+      Subscription.find({ createdAt: { $gte: queryStart, $lte: queryEnd }, userId: { $nin: excludedUserIds } }),
       Expense.find({ date: { $gte: queryStart, $lte: queryEnd } }),
       ExpenseCategory.find(),
       // Lightweight projection across the WHOLE collection (not range-limited) —
@@ -287,7 +302,7 @@ const getFinanceDashboard = async (req, res) => {
     const prevQueryEnd = new Date(addCalendarDays(prevBucketEnd, 1).getTime() - 1);
 
     const [prevSubscriptions, prevExpenses, prevActualSaleResult, prevNewUsersCount] = await Promise.all([
-      Subscription.find({ createdAt: { $gte: prevBucketStart, $lte: prevQueryEnd } }),
+      Subscription.find({ createdAt: { $gte: prevBucketStart, $lte: prevQueryEnd }, userId: { $nin: excludedUserIds } }),
       Expense.find({ date: { $gte: prevBucketStart, $lte: prevQueryEnd } }),
       actualSaleBreakdown(prevBucketStart, prevQueryEnd, 'day'),
       User.countDocuments({ role: 'user', createdAt: { $gte: prevBucketStart, $lte: prevQueryEnd } })
@@ -378,7 +393,7 @@ const getFinanceDashboard = async (req, res) => {
 
     const todayBounds = istDayBoundsUTC(calendarDateKey(today));
     const [todaySubscriptions, todayActualSaleResult] = await Promise.all([
-      Subscription.find({ createdAt: { $gte: todayBounds.start, $lte: todayBounds.end } }),
+      Subscription.find({ createdAt: { $gte: todayBounds.start, $lte: todayBounds.end }, userId: { $nin: excludedUserIds } }),
       actualSaleBreakdown(todayBounds.start, todayBounds.end, 'day')
     ]);
     const todaySales = todaySubscriptions.reduce(
@@ -445,9 +460,10 @@ const getDailySales = async (req, res) => {
 
     const queryStart = rangeStart;
     const queryEnd = new Date(addCalendarDays(rangeEnd, 1).getTime() - 1);
+    const excludedUserIds = await getExcludedUserIds();
 
     const [subscriptions, deliveries] = await Promise.all([
-      Subscription.find({ createdAt: { $gte: queryStart, $lte: queryEnd } }),
+      Subscription.find({ createdAt: { $gte: queryStart, $lte: queryEnd }, userId: { $nin: excludedUserIds } }),
       MealDelivery.find({ date: { $gte: queryStart, $lte: queryEnd } })
     ]);
 
