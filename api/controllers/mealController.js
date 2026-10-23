@@ -3,6 +3,7 @@ const User = require('../models/userModel');
 const Meal = require('../models/mealModel');
 const CustomiseMeal = require('../models/customiseMealModel');
 const Activity = require('../models/activityModel');
+const { sendWhatsAppMessage } = require('../utils/sendWhatsApp');
 const {
   currentISTMinutesSinceMidnight,
   todayCalendarDateUTC,
@@ -164,6 +165,22 @@ const customizeMealRequest = async (req, res) => {
       });
       await activityData.save();
       const savedCustomisationMealRequest = await customisationRequest.save();
+
+      (async () => {
+        try {
+          const user = await User.findById(userId);
+          if (!user || user.role !== 'user') return;
+          sendWhatsAppMessage({
+            campaignEnvVar: 'AISENSY_CUSTOMISATION_CAMPAIGN',
+            mobileNumber: user.mobile,
+            customerName: user.firstName,
+            templateParams: [user.firstName, mealType, date]
+          });
+        } catch (notifyError) {
+          console.error('Customisation WhatsApp send failed:', notifyError.message);
+        }
+      })();
+
       res.status(201).json(savedCustomisationMealRequest);
     }
   } catch (e) {

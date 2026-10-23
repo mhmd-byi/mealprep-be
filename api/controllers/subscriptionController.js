@@ -20,6 +20,24 @@ const {
 } = require('../utils/dateUtils');
 const { requireAuth } = require('../utils/requireAuth');
 const { requireAdmin } = require('../utils/requireAdmin');
+const { sendWhatsAppMessage } = require('../utils/sendWhatsApp');
+
+// Admin/staff accounts sometimes carry their own test subscription — never
+// notify those, only real customers.
+const notifyPurchase = async (userId, plan, mealCount, startDate) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user || user.role !== 'user') return;
+    sendWhatsAppMessage({
+      campaignEnvVar: 'AISENSY_SUBSCRIPTION_PURCHASED_CAMPAIGN',
+      mobileNumber: user.mobile,
+      customerName: user.firstName,
+      templateParams: [user.firstName, plan, String(mealCount), calendarDateKey(startDate)]
+    });
+  } catch (notifyError) {
+    console.error('Subscription-purchased WhatsApp send failed:', notifyError.message);
+  }
+};
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -414,6 +432,25 @@ const cancelMealRequest = async (req, res) => {
 
     await activityData.save();
     await newCancellation.save();
+
+    (async () => {
+      try {
+        // caller is already the target customer's own user doc in the
+        // common (self-cancel) case; only look it up again when an admin is
+        // cancelling on behalf of someone else.
+        const targetUser = caller._id.toString() === userId.toString() ? caller : await User.findById(userId);
+        if (!targetUser || targetUser.role !== 'user') return;
+        sendWhatsAppMessage({
+          campaignEnvVar: 'AISENSY_CANCELLATION_CAMPAIGN',
+          mobileNumber: targetUser.mobile,
+          customerName: targetUser.firstName,
+          templateParams: [targetUser.firstName, mealType, calendarDateKey(start), calendarDateKey(end)]
+        });
+      } catch (notifyError) {
+        console.error('Cancellation WhatsApp send failed:', notifyError.message);
+      }
+    })();
+
     res.json({ message: 'Meal cancellation request submitted successfully' });
   } catch (error) {
     console.error('Error cancelling meal:', error);
@@ -732,6 +769,21 @@ const updateMealSchedule = async (req, res) => {
       description: `Changed ${mealSlotLabel} preference for ${calendarDateKey(requestedDate)} to ${preferenceLabel}`,
       category: 'diet'
     });
+
+    (async () => {
+      try {
+        const user = await User.findById(userId);
+        if (!user || user.role !== 'user') return;
+        sendWhatsAppMessage({
+          campaignEnvVar: 'AISENSY_MEAL_PREFERENCE_CAMPAIGN',
+          mobileNumber: user.mobile,
+          customerName: user.firstName,
+          templateParams: [user.firstName, mealSlotLabel, calendarDateKey(requestedDate), preferenceLabel]
+        });
+      } catch (notifyError) {
+        console.error('Meal-preference WhatsApp send failed:', notifyError.message);
+      }
+    })();
 
     res.json({ message: 'Preference updated successfully.' });
   } catch (error) {
@@ -1053,6 +1105,7 @@ const verifyPayment = async (req, res) => {
 
     const savedSubscription = await subscription.save();
     console.log(`Subscription saved as '${newStatus}' for order:`, razorpay_order_id);
+    notifyPurchase(userId, plan, mealCount, savedSubscription.subscriptionStartDate);
 
     res.status(201).json({
       ...savedSubscription.toObject(),
@@ -1194,6 +1247,7 @@ const handleRazorpayWebhook = async (req, res) => {
 
       await subscription.save();
       console.log(`Webhook: saved subscription as '${newStatus}' for user ${userId}, order ${orderId}`);
+      notifyPurchase(userId, plan, mealCount, subscription.subscriptionStartDate);
     } catch (error) {
       console.error('Error processing webhook payment:', error);
       return res.status(500).send('Processing error');

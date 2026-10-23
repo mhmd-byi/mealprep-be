@@ -8,6 +8,7 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const { MailtrapClient } = require('mailtrap');
 const confirmMobileOtp = require('../models/confirmMobileOtp');
+const { sendWhatsAppMessage } = require('../utils/sendWhatsApp');
 require('dotenv').config();
 
 const generateToken = (userId, expires, type) => {
@@ -81,6 +82,12 @@ const createUser = async function (req, res) {
       }
       const tokens = await generateAuthTokens(user);
       const userData = { user, tokens };
+      sendWhatsAppMessage({
+        campaignEnvVar: 'AISENSY_WELCOME_CAMPAIGN',
+        mobileNumber: user.mobile,
+        customerName: user.firstName,
+        templateParams: [user.firstName]
+      }).catch((notifyError) => console.error('Welcome WhatsApp send failed:', notifyError.message));
       res.json(userData);
     });
   } catch (e) {
