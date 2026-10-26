@@ -5,6 +5,7 @@ const MealDelivery = require('../models/mealDeliveryModel');
 const MealDietaryPreference = require('../models/mealDietaryPreferenceModel');
 const Holiday = require('../models/holidayModel');
 const Activity = require('../models/activityModel');
+const SubscriptionSnapshot = require('../models/subscriptionSnapshotModel');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
@@ -1125,42 +1126,62 @@ const verifyPayment = async (req, res) => {
   }
 };
 
+// Shared by the live endpoint below and the daily snapshot cron
+// (subscriptionSnapshotJob.js), so both always count the exact same way.
+const countActiveSubscriptionsByPlan = async () => {
+  const activeSubscriptions = await Subscription.find({
+    status: 'active',
+    $expr: {
+      $gt: [
+        {
+          $add: [
+            { $ifNull: ['$lunchMeals', 0] },
+            { $ifNull: ['$dinnerMeals', 0] },
+            { $ifNull: ['$nextDayLunchMeals', 0] },
+            { $ifNull: ['$nextDayDinnerMeals', 0] }
+          ]
+        },
+        0
+      ]
+    }
+  }).populate('userId');
+
+  let weeklyCount = 0;
+  let monthlyCount = 0;
+  let trialCount = 0;
+
+  activeSubscriptions.forEach(sub => {
+    if (sub.userId && !isExcludedUser(sub.userId) && sub.plan) {
+      if (/Weekly/i.test(sub.plan)) {
+        weeklyCount++;
+      } else if (/Monthly/i.test(sub.plan)) {
+        monthlyCount++;
+      } else if (/Trial/i.test(sub.plan) || sub.plan === 'Trial Meal Pack') {
+        trialCount++;
+      }
+    }
+  });
+
+  return { weeklyCount, monthlyCount, trialCount };
+};
+
 const getActiveSubscriptionCounts = async (req, res) => {
   try {
-    const activeSubscriptions = await Subscription.find({
-      status: 'active',
-      $expr: {
-        $gt: [
-          {
-            $add: [
-              { $ifNull: ['$lunchMeals', 0] },
-              { $ifNull: ['$dinnerMeals', 0] },
-              { $ifNull: ['$nextDayLunchMeals', 0] },
-              { $ifNull: ['$nextDayDinnerMeals', 0] }
-            ]
-          },
-          0
-        ]
-      }
-    }).populate('userId');
+    const counts = await countActiveSubscriptionsByPlan();
 
-    let weeklyCount = 0;
-    let monthlyCount = 0;
-    let trialCount = 0;
+    // Subscription status has no history, so this can only ever compare
+    // against a real recorded snapshot from exactly 7 days ago — never an
+    // approximation. Absent until the daily snapshot job has been running
+    // for a week; the frontend shows no trend until then rather than guess.
+    const sevenDaysAgo = addCalendarDays(todayCalendarDateUTC(), -7);
+    const previousSnapshot = await SubscriptionSnapshot.findOne({ date: sevenDaysAgo });
 
-    activeSubscriptions.forEach(sub => {
-      if (sub.userId && !isExcludedUser(sub.userId) && sub.plan) {
-        if (/Weekly/i.test(sub.plan)) {
-          weeklyCount++;
-        } else if (/Monthly/i.test(sub.plan)) {
-          monthlyCount++;
-        } else if (/Trial/i.test(sub.plan) || sub.plan === 'Trial Meal Pack') {
-          trialCount++;
-        }
-      }
+    res.json({
+      ...counts,
+      previousWeeklyCount: previousSnapshot?.weeklyCount ?? null,
+      previousMonthlyCount: previousSnapshot?.monthlyCount ?? null,
+      previousTrialCount: previousSnapshot?.trialCount ?? null
     });
-
-    res.json({ weeklyCount, monthlyCount, trialCount });
   } catch (error) {
     console.error('Error getting active subscription counts:', error);
     res.status(500).json({ message: error.message });
@@ -1360,6 +1381,7 @@ module.exports = {
   createRazorpayOrder,
   verifyPayment,
   getActiveSubscriptionCounts,
+  countActiveSubscriptionsByPlan,
   handleRazorpayWebhook,
   cancelQueuedPlan,
   getUserCancellations,

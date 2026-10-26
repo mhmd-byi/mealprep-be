@@ -7,6 +7,7 @@ require('dotenv').config()
 const mongoose = require('mongoose');
 require('./api/jobs/mealJobs');
 require('./api/jobs/reminderJobs');
+require('./api/jobs/subscriptionSnapshotJob');
 
 // eslint-disable-next-line no-unused-vars
 const Task = require('./api/models/todoListModel');
