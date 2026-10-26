@@ -569,14 +569,22 @@ const getDeliveredMeals = async (req, res) => {
 
     const userIds = [...new Set(deliveredMeals.map((m) => m.userId.toString()))];
     const subscriptionIds = [...new Set(deliveredMeals.map((m) => m.subscriptionId.toString()))];
-    const [users, subscriptions, prefRows] = await Promise.all([
-      User.find({ _id: { $in: userIds } }, 'firstName lastName email mobile role').exec(),
-      Subscription.find({ _id: { $in: subscriptionIds } }, 'userId mealType').exec(),
-      MealDietaryPreference.find({ userId: { $in: userIds }, date: parseCalendarDate(date) }).exec()
+    const [users, subscriptions, prefRows, earliestSubs] = await Promise.all([
+      User.find({ _id: { $in: userIds } }, 'firstName lastName email mobile postalAddress role').exec(),
+      Subscription.find({ _id: { $in: subscriptionIds } }, 'userId mealType carbType plan createdAt').exec(),
+      MealDietaryPreference.find({ userId: { $in: userIds }, date: parseCalendarDate(date) }).exec(),
+      // "New customer" for the delivery label — is this the earliest
+      // subscription this user has ever had, not just the delivered one.
+      Subscription.find({ userId: { $in: userIds } }, 'userId createdAt').sort({ createdAt: 1, _id: 1 }).exec()
     ]);
     const userById = new Map(users.map((u) => [u._id.toString(), u]));
     const subById = new Map(subscriptions.map((s) => [s._id.toString(), s]));
     const prefMap = new Map(prefRows.map((r) => [`${r.userId}_${r.mealSlot}`, r.preference]));
+    const earliestSubIdByUser = new Map();
+    earliestSubs.forEach((s) => {
+      const key = s.userId.toString();
+      if (!earliestSubIdByUser.has(key)) earliestSubIdByUser.set(key, s._id.toString());
+    });
 
     // A "both" meal-type plan's veg/non-veg choice is per-day, so it has to be
     // resolved per delivery rather than read off the subscription itself.
@@ -599,7 +607,11 @@ const getDeliveredMeals = async (req, res) => {
         userId: meal.userId,
         name: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
         mobile: user?.mobile || '',
+        address: user?.postalAddress || '',
         dietaryType: resolveDietaryType(meal, sub),
+        carbType: sub?.carbType || '',
+        plan: sub?.plan || '',
+        isNewCustomer: sub ? earliestSubIdByUser.get(meal.userId.toString()) === sub._id.toString() : false,
         date: meal.date,
         createdAt: meal.createdAt
       };
@@ -973,6 +985,17 @@ const getUserForMealDelivery = async (req, res) => {
     const prefMap = new Map();
     prefRows.forEach(r => prefMap.set(r.userId.toString(), r.preference));
 
+    // "New customer" for the delivery label — is THIS the earliest subscription
+    // this user has ever had, not just the one currently scheduled.
+    const involvedUserIds = [...new Set(filteredUsersWithMeals.map(s => s.userId._id.toString()))];
+    const earliestSubs = await Subscription.find({ userId: { $in: involvedUserIds } }, 'userId createdAt')
+      .sort({ createdAt: 1, _id: 1 });
+    const earliestSubIdByUser = new Map();
+    earliestSubs.forEach(s => {
+      const key = s.userId.toString();
+      if (!earliestSubIdByUser.has(key)) earliestSubIdByUser.set(key, s._id.toString());
+    });
+
     const userDeliveries = filteredUsersWithMeals.map(subscription => ({
       userId: subscription.userId._id,
       name: `${subscription.userId.firstName} ${subscription.userId.lastName}`,
@@ -990,6 +1013,7 @@ const getUserForMealDelivery = async (req, res) => {
       dinnerMeals: subscription.dinnerMeals || 0,
       nextDayLunchMeals: subscription.nextDayLunchMeals || 0,
       nextDayDinnerMeals: subscription.nextDayDinnerMeals || 0,
+      isNewCustomer: earliestSubIdByUser.get(subscription.userId._id.toString()) === subscription._id.toString(),
     }));
 
     res.json(userDeliveries);
