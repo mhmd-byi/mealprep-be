@@ -559,21 +559,30 @@ const PAYMENT_STATUS_LABELS = {
   failed: 'Failed'
 };
 
-// Merges real Razorpay payments (revenue) with real logged Expense entries
-// into one date-sorted feed — there's no unified "transaction" model in this
-// app, so this is built on read rather than stored. Every expense is shown as
-// "Paid" since the Expense model has no pending/unpaid state: a logged
-// expense is, by definition, money already spent.
+// Merges real Razorpay payments (revenue), subscriptions paid by a real
+// non-Razorpay method recorded manually by an admin (cash, UPI/Card/Bank
+// Transfer collected offline — these never produce a Razorpay payment, so
+// the feed would otherwise miss them entirely), and real logged Expense
+// entries into one date-sorted feed — there's no unified "transaction" model
+// in this app, so this is built on read rather than stored. Every expense is
+// shown as "Paid" since the Expense model has no pending/unpaid state: a
+// logged expense is, by definition, money already spent.
 const getRecentTransactions = async (req, res) => {
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || TRANSACTION_FEED_LIMIT));
+    const excludedUserIds = await getExcludedUserIds();
 
-    const [payments, expenses] = await Promise.all([
+    const [payments, expenses, cashSubs] = await Promise.all([
       razorpay.payments.all({ count: limit }),
-      Expense.find().sort({ date: -1, createdAt: -1 }).limit(limit)
+      Expense.find().sort({ date: -1, createdAt: -1 }).limit(limit),
+      Subscription.find({
+        orderId: { $exists: false },
+        paymentMethod: { $exists: true },
+        userId: { $nin: excludedUserIds }
+      }).sort({ createdAt: -1 }).limit(limit)
     ]);
 
     const orderIds = payments.items.map((p) => p.order_id).filter(Boolean);
@@ -588,9 +597,20 @@ const getRecentTransactions = async (req, res) => {
         type: 'Revenue',
         description: sub ? `${sub.plan} Payment` : 'Subscription Payment',
         amount: payment.amount / 100,
-        status: PAYMENT_STATUS_LABELS[payment.status] || payment.status
+        status: PAYMENT_STATUS_LABELS[payment.status] || payment.status,
+        method: 'Online'
       };
     });
+
+    const cashRows = cashSubs.map((sub) => ({
+      id: `subscription-${sub._id}`,
+      date: sub.createdAt,
+      type: 'Revenue',
+      description: `${sub.plan} Payment`,
+      amount: computeNetRevenue(sub),
+      status: 'Paid',
+      method: sub.paymentMethod
+    }));
 
     const expenseRows = expenses.map((exp) => ({
       id: `expense-${exp._id}`,
@@ -598,10 +618,11 @@ const getRecentTransactions = async (req, res) => {
       type: 'Expense',
       description: exp.description || exp.category,
       amount: exp.amount,
-      status: 'Paid'
+      status: 'Paid',
+      method: null
     }));
 
-    const transactions = [...revenueRows, ...expenseRows]
+    const transactions = [...revenueRows, ...cashRows, ...expenseRows]
       .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, limit);
 
