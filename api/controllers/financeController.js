@@ -589,24 +589,36 @@ const getRecentTransactions = async (req, res) => {
     const subscriptions = await Subscription.find({ orderId: { $in: orderIds } });
     const subscriptionByOrderId = new Map(subscriptions.map((sub) => [sub.orderId, sub]));
 
-    const revenueRows = payments.items.map((payment) => {
-      const sub = subscriptionByOrderId.get(payment.order_id);
-      return {
+    const customers = await User.find(
+      { _id: { $in: [...subscriptions, ...cashSubs].map((sub) => sub.userId) } },
+      'firstName lastName'
+    ).lean();
+    const customerNameById = new Map(
+      customers.map((u) => [String(u._id), `${u.firstName || ''} ${u.lastName || ''}`.trim()])
+    );
+    const customerNameFor = (sub) => (sub && customerNameById.get(String(sub.userId))) || null;
+    const excludedIdSet = new Set(excludedUserIds.map(String));
+
+    const revenueRows = payments.items
+      .map((payment) => ({ payment, sub: subscriptionByOrderId.get(payment.order_id) }))
+      .filter(({ sub }) => !sub || !excludedIdSet.has(String(sub.userId)))
+      .map(({ payment, sub }) => ({
         id: `payment-${payment.id}`,
         date: new Date(payment.created_at * 1000),
         type: 'Revenue',
         description: sub ? `${sub.plan} Payment` : 'Subscription Payment',
+        customerName: customerNameFor(sub),
         amount: payment.amount / 100,
         status: PAYMENT_STATUS_LABELS[payment.status] || payment.status,
         method: 'Online'
-      };
-    });
+      }));
 
     const cashRows = cashSubs.map((sub) => ({
       id: `subscription-${sub._id}`,
       date: sub.createdAt,
       type: 'Revenue',
       description: `${sub.plan} Payment`,
+      customerName: customerNameFor(sub),
       amount: computeNetRevenue(sub),
       status: 'Paid',
       method: sub.paymentMethod
@@ -617,6 +629,7 @@ const getRecentTransactions = async (req, res) => {
       date: exp.date,
       type: 'Expense',
       description: exp.description || exp.category,
+      customerName: null,
       amount: exp.amount,
       status: 'Paid',
       method: null
