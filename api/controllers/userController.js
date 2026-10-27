@@ -10,6 +10,12 @@ const { MailtrapClient } = require('mailtrap');
 const confirmMobileOtp = require('../models/confirmMobileOtp');
 const { sendWhatsAppMessage } = require('../utils/sendWhatsApp');
 const { TEST_CUSTOMER_EMAILS } = require('../utils/excludedAccounts');
+const {
+  PROFILE_FIELD_KEYS,
+  pickProfileFields,
+  pickSubmittedProfileFields,
+  cleanProfileFields
+} = require('../utils/profileFields');
 require('dotenv').config();
 
 const generateToken = (userId, expires, type) => {
@@ -73,8 +79,13 @@ const createUser = async function (req, res) {
     if (mobiles.length > 0) {
       throw new ApiError('Phone number already taken', 400);
     }
+    const profile = await cleanProfileFields(req.body);
+    if (profile.error) {
+      throw new ApiError(profile.error, 400);
+    }
     const newUser = new User({
       ...req.body,
+      ...profile.value,
       role: 'user'
     });
     newUser.save(async function (err, user) {
@@ -309,6 +320,21 @@ const updateUser = async function (req, res) {
   updateData = Object.fromEntries(Object.entries(updateData).filter(([_, v]) => v != null && v !== ''));
 
   try {
+    if (PROFILE_FIELD_KEYS.some((key) => key in req.body)) {
+      const existing = await User.findById(req.params.userId).lean();
+      if (!existing) {
+        return res.status(404).send({ message: 'User not found with id ' + req.params.userId });
+      }
+      const profile = await cleanProfileFields(
+        { ...pickProfileFields(existing), ...pickSubmittedProfileFields(req.body) },
+        existing
+      );
+      if (profile.error) {
+        return res.status(400).send({ message: profile.error });
+      }
+      Object.assign(updateData, profile.value);
+    }
+
     const updatedUser = await User.findOneAndUpdate({ _id: req.params.userId }, updateData, { new: true });
 
     if (!updatedUser) {

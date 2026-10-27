@@ -48,6 +48,23 @@ const userSchema = new Schema({
   age: {
     type: Number
   },
+  gender: {
+    type: String,
+    enum: ['', 'male', 'female', 'other'],
+    default: ''
+  },
+  genderOther: {
+    type: String,
+    default: ''
+  },
+  profession: {
+    type: String,
+    default: ''
+  },
+  professionOther: {
+    type: String,
+    default: ''
+  },
   created_date: {
     type: Date,
     default: Date.now
