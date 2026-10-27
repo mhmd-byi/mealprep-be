@@ -59,11 +59,6 @@ const sendReminderWhatsApp = async (mobileNumber, customerName, templateParams) 
   return true;
 };
 
-// Walks forward day by day from today, skipping Sundays and any date already
-// on the Holiday calendar, counting off `remaining` delivery days. Returns the
-// calendar date of the LAST delivery — the day this meal bucket hits zero.
-// (Per-user meal cancellations on future dates aren't factored in — this is
-// an approximation, same as the rest of the "meals remaining" day-proxy.)
 const projectExhaustionDate = (remaining, holidayDateKeys) => {
   let date = todayCalendarDateUTC();
   let daysLeft = remaining;
