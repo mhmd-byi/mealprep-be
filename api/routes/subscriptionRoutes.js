@@ -6,6 +6,7 @@ const {
   updateMealSchedule,
   getDietaryStockReport,
   getSubscriptionDetails,
+  updateTastePreference,
   createSubscription,
   getUserForMealDelivery,
   createRazorpayOrder,
@@ -27,6 +28,7 @@ const subscriptionRoutes = function(app) {
     .route('/subscription/:userId/subscription')
     .get(getSubscriptionDetails)
     .post(createSubscription);
+  app.route('/subscription/:subscriptionId/taste-preference').put(updateTastePreference);
   app.route('/subscription/get-meal-delivery-details').get(getUserForMealDelivery);
   app.route('/subscription/create-order').post(createRazorpayOrder);
   app.route('/subscription/verify-payment').post(verifyPayment);

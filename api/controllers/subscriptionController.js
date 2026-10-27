@@ -23,6 +23,7 @@ const { requireAuth } = require('../utils/requireAuth');
 const { requireAdmin } = require('../utils/requireAdmin');
 const { sendWhatsAppMessage } = require('../utils/sendWhatsApp');
 const { getExcludedUserIds, isExcludedUser } = require('../utils/excludedAccounts');
+const { cleanTastePreferences, describeTastePreferences } = require('../utils/tastePreferences');
 
 // Admin/staff accounts sometimes carry their own test subscription — never
 // notify those, only real customers.
@@ -1009,6 +1010,8 @@ const getUserForMealDelivery = async (req, res) => {
       carbType: subscription.carbType || '',
       plan: subscription.plan || '',
       allergy: subscription.allergy || '',
+      spiceLevel: subscription.spiceLevel || '',
+      flavourPreferences: subscription.flavourPreferences || [],
       lunchMeals: subscription.lunchMeals || 0,
       dinnerMeals: subscription.dinnerMeals || 0,
       nextDayLunchMeals: subscription.nextDayLunchMeals || 0,
@@ -1026,7 +1029,8 @@ const getUserForMealDelivery = async (req, res) => {
 
 const createRazorpayOrder = async (req, res) => {
   try {
-    const { amount, plan, meals, userId, carbType, mealType, lunchDinner, mealStartDate, allergy } = req.body;
+    const { amount, plan, meals, userId, carbType, mealType, lunchDinner, mealStartDate, allergy, spiceLevel, flavourPreferences } = req.body;
+    const taste = await cleanTastePreferences({ spiceLevel, flavourPreferences });
 
     const options = {
       amount: amount * 100,
@@ -1041,6 +1045,8 @@ const createRazorpayOrder = async (req, res) => {
         lunchDinner: lunchDinner,
         mealStartDate,
         allergy,
+        spiceLevel: taste.spiceLevel,
+        flavourPreferences: taste.flavourPreferences.join(',').slice(0, 255),
       }
     };
 
@@ -1059,7 +1065,7 @@ const createRazorpayOrder = async (req, res) => {
 
 const verifyPayment = async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals, mealType, carbType, lunchDinner, mealStartDate, allergy } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals, mealType, carbType, lunchDinner, mealStartDate, allergy, spiceLevel, flavourPreferences } = req.body;
 
     console.log('Verifying payment for order:', razorpay_order_id);
 
@@ -1132,6 +1138,7 @@ const verifyPayment = async (req, res) => {
       paymentId: razorpay_payment_id,
       orderId: razorpay_order_id,
       allergy: allergy || '',
+      ...(await cleanTastePreferences({ spiceLevel, flavourPreferences })),
       status: newStatus
     });
 
@@ -1249,7 +1256,7 @@ const handleRazorpayWebhook = async (req, res) => {
         return res.status(200).send('No notes found');
       }
 
-      const { userId, plan, meals, mealType, carbType, lunchDinner, mealStartDate, allergy } = notes;
+      const { userId, plan, meals, mealType, carbType, lunchDinner, mealStartDate, allergy, spiceLevel, flavourPreferences } = notes;
 
       // A purchase only queues if it overlaps an already-active plan's meal-type
       // coverage (see purchaseOverlapsActiveSubs) — a non-overlapping purchase
@@ -1294,6 +1301,7 @@ const handleRazorpayWebhook = async (req, res) => {
         paymentId: payment.id,
         orderId,
         allergy: allergy || '',
+        ...(await cleanTastePreferences({ spiceLevel, flavourPreferences })),
         status: newStatus
       });
 
@@ -1392,9 +1400,45 @@ const getUserCancellations = async (req, res) => {
   }
 };
 
+const updateTastePreference = async (req, res) => {
+  try {
+    const caller = await requireAuth(req, res);
+    if (!caller) return;
+
+    const sub = await Subscription.findById(req.params.subscriptionId);
+    if (!sub) {
+      return res.status(404).json({ message: 'Subscription not found' });
+    }
+    if (caller._id.toString() !== sub.userId.toString()) {
+      return res.status(403).json({ message: 'You can only edit your own taste preference.' });
+    }
+    if (!['active', 'queued'].includes(sub.status)) {
+      return res.status(400).json({ message: 'Only an active or queued plan can be edited.' });
+    }
+
+    const taste = await cleanTastePreferences(req.body);
+    sub.spiceLevel = taste.spiceLevel;
+    sub.flavourPreferences = taste.flavourPreferences;
+    await sub.save();
+
+    await Activity.create({
+      userId: sub.userId,
+      date: todayCalendarDateUTC(),
+      description: `Updated taste preference for ${sub.plan} — ${describeTastePreferences(taste)}`,
+      category: 'diet'
+    });
+
+    res.json(taste);
+  } catch (error) {
+    console.error('Error updating taste preference:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
 module.exports = {
   createSubscription,
   getSubscriptionDetails,
+  updateTastePreference,
   cancelMealRequest,
   getCancelledMeals,
   getDeliveredMeals,

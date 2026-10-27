@@ -57,6 +57,8 @@ const subscriptionSchema = new Schema(
     refundId: { type: String },
     mealStartDate: { type: String },
     allergy: { type: String, default: "" },
+    spiceLevel: { type: String, default: '' },
+    flavourPreferences: { type: [String], default: [] },
     // 'active' = currently delivering, 'queued' = waiting for current to finish, 'completed' = meals exhausted
     status: {
       type: String,

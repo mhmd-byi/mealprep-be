@@ -11,6 +11,7 @@ const {
   LUNCH_CUTOFF_MINUTES,
   DINNER_CUTOFF_MINUTES
 } = require('./subscriptionController');
+const { cleanTastePreferences } = require('../utils/tastePreferences');
 
 const VALID_PLANS = ['Trial Meal Pack', 'Weekly Plan', 'Monthly Plan'];
 const VALID_LUNCH_DINNER = ['lunch', 'dinner', 'lunchAndDinner'];
@@ -25,6 +26,8 @@ const snapshot = (sub) => ({
   mealType: sub.mealType,
   carbType: sub.carbType,
   allergy: sub.allergy,
+  spiceLevel: sub.spiceLevel,
+  flavourPreferences: [...(sub.flavourPreferences || [])],
   lunchMeals: sub.lunchMeals,
   dinnerMeals: sub.dinnerMeals,
   nextDayLunchMeals: sub.nextDayLunchMeals,
@@ -60,7 +63,7 @@ const createAdminSubscription = async (req, res) => {
 
     const {
       userId, plan, totalMeals, lunchDinner, mealType, carbType,
-      subscriptionStartDate, mealStartDate, allergy, paymentMethod, paymentId, reason
+      subscriptionStartDate, mealStartDate, allergy, spiceLevel, flavourPreferences, paymentMethod, paymentId, reason
     } = req.body;
 
     if (!reason || !reason.trim()) {
@@ -130,6 +133,7 @@ const createAdminSubscription = async (req, res) => {
       subscriptionStartDate: parseCalendarDate(subscriptionStartDate),
       mealStartDate: mealStartDate || subscriptionStartDate,
       allergy: allergy || '',
+      ...(await cleanTastePreferences({ spiceLevel, flavourPreferences })),
       paymentMethod: paymentMethod || undefined,
       paymentId: paymentId || '',
       status
@@ -204,6 +208,14 @@ const updateAdminSubscription = async (req, res) => {
     if (fieldUpdates.carbType !== undefined) sub.carbType = fieldUpdates.carbType;
     if (fieldUpdates.mealType !== undefined) sub.mealType = fieldUpdates.mealType;
     if (fieldUpdates.allergy !== undefined) sub.allergy = fieldUpdates.allergy;
+    if (fieldUpdates.spiceLevel !== undefined || fieldUpdates.flavourPreferences !== undefined) {
+      const taste = await cleanTastePreferences({
+        spiceLevel: fieldUpdates.spiceLevel,
+        flavourPreferences: fieldUpdates.flavourPreferences
+      });
+      if (fieldUpdates.spiceLevel !== undefined) sub.spiceLevel = taste.spiceLevel;
+      if (fieldUpdates.flavourPreferences !== undefined) sub.flavourPreferences = taste.flavourPreferences;
+    }
     if (fieldUpdates.paymentMethod !== undefined) sub.paymentMethod = fieldUpdates.paymentMethod || undefined;
     if (fieldUpdates.paymentId !== undefined) sub.paymentId = fieldUpdates.paymentId;
     if (fieldUpdates.subscriptionStartDate !== undefined) sub.subscriptionStartDate = parseCalendarDate(fieldUpdates.subscriptionStartDate);

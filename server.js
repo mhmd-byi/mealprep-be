@@ -26,6 +26,7 @@ const adminSubscriptionRoutes = require('./api/routes/adminSubscriptionRoutes');
 const financeRoutes = require('./api/routes/financeRoutes');
 const mealCategoryRoutes = require('./api/routes/mealCategoryRoutes');
 const mealLibraryRoutes = require('./api/routes/mealLibraryRoutes');
+const tasteOptionRoutes = require('./api/routes/tasteOptionRoutes');
 
 const corsOptions = {
   origin: '*', // Adjust this to match the domain you want to allow
@@ -84,6 +85,7 @@ adminSubscriptionRoutes.adminSubscriptionRoutes(app); // register admin subscrip
 financeRoutes.financeRoutes(app); // register finance dashboard routes
 mealCategoryRoutes.mealCategoryRoutes(app); // register meal category management routes
 mealLibraryRoutes.mealLibraryRoutes(app); // register meal library routes
+tasteOptionRoutes.tasteOptionRoutes(app); // register taste preference option routes
 
 app.listen(port, () => {
   console.log('Node.js + MongoDB RESTful API server started on: ' + port);
