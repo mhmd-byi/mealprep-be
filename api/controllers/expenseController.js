@@ -11,9 +11,6 @@ const {
 } = require('../utils/dateUtils');
 require('dotenv').config();
 
-// Category/subcategory are admin-managed (ExpenseCategory), so they're
-// validated dynamically here instead of a fixed schema enum. Returns the
-// matching category doc so a subcategory can be checked against it too.
 const findValidCategory = async (categoryName) => {
   const category = await ExpenseCategory.findOne({ name: categoryName });
   return category;
