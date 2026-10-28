@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
-const CATEGORIES = ['account', 'subscription', 'cancellation', 'customisation', 'diet', 'profile', 'holiday', 'meal_count', 'other'];
+const CATEGORIES = ['account', 'subscription', 'renewal', 'cancellation', 'customisation', 'diet', 'profile', 'holiday', 'meal_count', 'other'];
 
 const activitesSchema = new Schema(
   {

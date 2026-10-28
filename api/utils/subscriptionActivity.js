@@ -1,13 +1,21 @@
 const Activity = require('../models/activityModel');
+const Subscription = require('../models/subscriptionModel');
 const { todayCalendarDateUTC } = require('./dateUtils');
 
-const logSubscriptionActivity = async (userId, plan) => {
+const logSubscriptionActivity = async (subscription) => {
   try {
+    const hadEarlierSubscription = await Subscription.exists({
+      userId: subscription.userId,
+      _id: { $ne: subscription._id }
+    });
+    const queuedNote = subscription.status === 'queued' ? ' (queued)' : '';
     await Activity.create({
-      userId,
+      userId: subscription.userId,
       date: todayCalendarDateUTC(),
-      description: `Subscribed to ${plan}`,
-      category: 'subscription'
+      description: hadEarlierSubscription
+        ? `Renewed ${subscription.plan}${queuedNote}`
+        : `Subscribed to ${subscription.plan}${queuedNote}`,
+      category: hadEarlierSubscription ? 'renewal' : 'subscription'
     });
   } catch (error) {
     console.error('Error logging subscription activity:', error.message);

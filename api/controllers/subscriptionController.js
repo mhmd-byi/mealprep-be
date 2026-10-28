@@ -1146,7 +1146,7 @@ const verifyPayment = async (req, res) => {
     const savedSubscription = await subscription.save();
     console.log(`Subscription saved as '${newStatus}' for order:`, razorpay_order_id);
     notifyPurchase(userId, plan, mealCount, savedSubscription.subscriptionStartDate);
-    await logSubscriptionActivity(userId, plan);
+    await logSubscriptionActivity(savedSubscription);
 
     res.status(201).json({
       ...savedSubscription.toObject(),
@@ -1310,7 +1310,7 @@ const handleRazorpayWebhook = async (req, res) => {
       await subscription.save();
       console.log(`Webhook: saved subscription as '${newStatus}' for user ${userId}, order ${orderId}`);
       notifyPurchase(userId, plan, mealCount, subscription.subscriptionStartDate);
-      await logSubscriptionActivity(userId, plan);
+      await logSubscriptionActivity(subscription);
     } catch (error) {
       console.error('Error processing webhook payment:', error);
       return res.status(500).send('Processing error');

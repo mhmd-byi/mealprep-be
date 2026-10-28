@@ -151,7 +151,7 @@ const createAdminSubscription = async (req, res) => {
       before: null,
       after: snapshot(subscription)
     });
-    await logSubscriptionActivity(userId, plan);
+    await logSubscriptionActivity(subscription);
 
     res.status(201).json(subscription);
   } catch (error) {
