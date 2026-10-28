@@ -24,6 +24,7 @@ const { requireAdmin } = require('../utils/requireAdmin');
 const { sendWhatsAppMessage } = require('../utils/sendWhatsApp');
 const { getExcludedUserIds, isExcludedUser } = require('../utils/excludedAccounts');
 const { cleanTastePreferences, describeTastePreferences } = require('../utils/tastePreferences');
+const { logSubscriptionActivity } = require('../utils/subscriptionActivity');
 
 // Admin/staff accounts sometimes carry their own test subscription — never
 // notify those, only real customers.
@@ -1145,6 +1146,7 @@ const verifyPayment = async (req, res) => {
     const savedSubscription = await subscription.save();
     console.log(`Subscription saved as '${newStatus}' for order:`, razorpay_order_id);
     notifyPurchase(userId, plan, mealCount, savedSubscription.subscriptionStartDate);
+    await logSubscriptionActivity(userId, plan);
 
     res.status(201).json({
       ...savedSubscription.toObject(),
@@ -1308,6 +1310,7 @@ const handleRazorpayWebhook = async (req, res) => {
       await subscription.save();
       console.log(`Webhook: saved subscription as '${newStatus}' for user ${userId}, order ${orderId}`);
       notifyPurchase(userId, plan, mealCount, subscription.subscriptionStartDate);
+      await logSubscriptionActivity(userId, plan);
     } catch (error) {
       console.error('Error processing webhook payment:', error);
       return res.status(500).send('Processing error');

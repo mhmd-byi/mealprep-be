@@ -12,6 +12,7 @@ const {
   DINNER_CUTOFF_MINUTES
 } = require('./subscriptionController');
 const { cleanTastePreferences } = require('../utils/tastePreferences');
+const { logSubscriptionActivity } = require('../utils/subscriptionActivity');
 
 const VALID_PLANS = ['Trial Meal Pack', 'Weekly Plan', 'Monthly Plan'];
 const VALID_LUNCH_DINNER = ['lunch', 'dinner', 'lunchAndDinner'];
@@ -150,6 +151,7 @@ const createAdminSubscription = async (req, res) => {
       before: null,
       after: snapshot(subscription)
     });
+    await logSubscriptionActivity(userId, plan);
 
     res.status(201).json(subscription);
   } catch (error) {

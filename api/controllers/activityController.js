@@ -65,9 +65,15 @@ const getRecentActivities = async (req, res) => {
     const limit = Math.min(500, Number(req.query.limit) || 200);
     const since = new Date(Date.now() - hours * 60 * 60 * 1000);
 
-    const activities = await Activity.find({ createdAt: { $gte: since } })
-      .sort({ createdAt: -1 })
-      .limit(limit);
+    const [otherActivities, mealLogs] = await Promise.all([
+      Activity.find({ createdAt: { $gte: since }, category: { $ne: 'meal_count' } })
+        .sort({ createdAt: -1 })
+        .limit(limit),
+      Activity.find({ createdAt: { $gte: since }, category: 'meal_count' })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+    ]);
+    const activities = [...otherActivities, ...mealLogs].sort((a, b) => b.createdAt - a.createdAt);
 
     const userIds = [...new Set(activities.map((a) => String(a.userId)))];
     const users = await User.find({ _id: { $in: userIds } }, 'firstName lastName email mobile role');
