@@ -12,6 +12,10 @@ const createActivity = async (req, res) => {
   try {
     const { userId, date, description, category } = req.body;
 
+    if (category === 'subscription') {
+      return res.status(200).json({ message: 'Subscription activity is recorded automatically when the plan is created.' });
+    }
+
     if (!userId || !date || !description) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
