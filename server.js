@@ -28,6 +28,7 @@ const mealCategoryRoutes = require('./api/routes/mealCategoryRoutes');
 const mealLibraryRoutes = require('./api/routes/mealLibraryRoutes');
 const tasteOptionRoutes = require('./api/routes/tasteOptionRoutes');
 const professionOptionRoutes = require('./api/routes/professionOptionRoutes');
+const noteRoutes = require('./api/routes/noteRoutes');
 
 const corsOptions = {
   origin: '*', // Adjust this to match the domain you want to allow
@@ -88,6 +89,7 @@ mealCategoryRoutes.mealCategoryRoutes(app); // register meal category management
 mealLibraryRoutes.mealLibraryRoutes(app); // register meal library routes
 tasteOptionRoutes.tasteOptionRoutes(app); // register taste preference option routes
 professionOptionRoutes.professionOptionRoutes(app); // register profession option routes
+noteRoutes.noteRoutes(app); // register notes and note category routes
 
 app.listen(port, () => {
   console.log('Node.js + MongoDB RESTful API server started on: ' + port);
