@@ -16,7 +16,31 @@ const {
   pickSubmittedProfileFields,
   cleanProfileFields
 } = require('../utils/profileFields');
+const { requireAuth } = require('../utils/requireAuth');
+const { requireAdmin } = require('../utils/requireAdmin');
 require('dotenv').config();
+
+const HIDDEN_USER_FIELDS = '-password -confirmPassword -resetPasswordToken -resetPasswordExpires -resetLink';
+const HIDDEN_USER_PROJECTION = {
+  password: 0,
+  confirmPassword: 0,
+  resetPasswordToken: 0,
+  resetPasswordExpires: 0,
+  resetLink: 0
+};
+
+const SELF_EDITABLE_FIELDS = [
+  'firstName',
+  'lastName',
+  'postalAddress',
+  'password',
+  'profileImageUrl',
+  'age',
+  ...PROFILE_FIELD_KEYS
+];
+const ADMIN_EDITABLE_FIELDS = [...SELF_EDITABLE_FIELDS, 'email', 'mobile'];
+
+const canAccessUser = (caller, userId) => caller.role === 'admin' || caller._id.toString() === String(userId);
 
 const generateToken = (userId, expires, type) => {
   const payload = {
@@ -39,11 +63,15 @@ const saveToken = async (token, userId, expires, type, blacklisted = false) => {
   return tokenDoc;
 };
 
-const generateAuthTokens = async user => {
+const MOBILE_SESSION_DAYS = 60;
+
+const isMobileClient = (req) => req.body?.clientType === 'mobile';
+
+const generateAuthTokens = async (user, { longSession = false } = {}) => {
   const accessTokenExpires = moment().add(12, 'hours');
   const accessToken = generateToken(user.id, accessTokenExpires, 'access');
 
-  const refreshTokenExpires = moment().add(1, 'days');
+  const refreshTokenExpires = moment().add(longSession ? MOBILE_SESSION_DAYS : 1, 'days');
   const refreshToken = generateToken(user.id, refreshTokenExpires, 'refresh');
   await saveToken(refreshToken, user.id, refreshTokenExpires, 'refresh');
 
@@ -92,7 +120,7 @@ const createUser = async function (req, res) {
       if (err) {
         throw new ApiError('Database error on user creation', 500);
       }
-      const tokens = await generateAuthTokens(user);
+      const tokens = await generateAuthTokens(user, { longSession: isMobileClient(req) });
       const userData = { user, tokens };
       sendWhatsAppMessage({
         campaignEnvVar: 'AISENSY_WELCOME_CAMPAIGN',
@@ -129,7 +157,7 @@ const getUserByEmailAndPassword = async (req, res) => {
     const user = await validateUserCredentials(email, password);
 
     if (user) {
-      const tokens = await generateAuthTokens(user);
+      const tokens = await generateAuthTokens(user, { longSession: isMobileClient(req) });
       res.json({
         message: 'Login successful',
         tokens,
@@ -157,7 +185,7 @@ const getUserByMobileNumberAndOtp = async (req, res) => {
   if (!verifyOtp) {
     return res.status(401).json({ message: 'Invalid OTP' });
   }
-  const tokens = await generateAuthTokens(user);
+  const tokens = await generateAuthTokens(user, { longSession: isMobileClient(req) });
   res.json({
     message: 'Login successful',
     tokens,
@@ -172,11 +200,14 @@ const getUserByMobileNumberAndOtp = async (req, res) => {
 // Get All Users API
 const getAllUsers = async (req, res) => {
   try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
     // Real customer accounts only — matches getAllUsersWithMealCounts, so an
     // admin's own login (or the known test customer account) never counts as
     // a "registered user" anywhere this is used (Dashboard's total count,
     // User Meal Tracking's search list, the admin customer-search modals, etc).
-    const response = await User.find({ role: 'user', email: { $nin: TEST_CUSTOMER_EMAILS } });
+    const response = await User.find({ role: 'user', email: { $nin: TEST_CUSTOMER_EMAILS } }).select(HIDDEN_USER_FIELDS);
     res.status(200).json({
       users: response
     });
@@ -187,11 +218,15 @@ const getAllUsers = async (req, res) => {
 
 const getAllUsersWithMealCounts = async (req, res) => {
   try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
     const { plan, activeOnly } = req.query;
 
     const pipeline = [
       { $match: { role: 'user', email: { $nin: TEST_CUSTOMER_EMAILS } } },
       { $sort: { createdAt: -1, _id: -1 } },
+      { $project: HIDDEN_USER_PROJECTION },
       // Join Subscriptions
       {
         $lookup: {
@@ -278,7 +313,13 @@ const getAllUsersWithMealCounts = async (req, res) => {
 // Get User By ID API
 const getUserById = async (req, res) => {
   try {
-    const user = await User.findById(req.params.userId).lean();
+    const caller = await requireAuth(req, res);
+    if (!caller) return;
+    if (!canAccessUser(caller, req.params.userId)) {
+      return res.status(403).send({ message: 'You can only view your own account.' });
+    }
+
+    const user = await User.findById(req.params.userId).select(HIDDEN_USER_FIELDS).lean();
     if (!user) {
       return res.status(404).send({ message: 'User not found with id ' + req.params.userId });
     }
@@ -310,7 +351,14 @@ const getUserById = async (req, res) => {
 
 // Update User API
 const updateUser = async function (req, res) {
-  let updateData = { ...req.body };
+  const caller = await requireAuth(req, res);
+  if (!caller) return;
+  if (!canAccessUser(caller, req.params.userId)) {
+    return res.status(403).send({ message: 'You can only edit your own account.' });
+  }
+
+  const editableFields = caller.role === 'admin' ? ADMIN_EDITABLE_FIELDS : SELF_EDITABLE_FIELDS;
+  let updateData = Object.fromEntries(Object.entries(req.body).filter(([key]) => editableFields.includes(key)));
 
   if (updateData.password) {
     const salt = await bcrypt.genSalt(10);
@@ -335,7 +383,8 @@ const updateUser = async function (req, res) {
       Object.assign(updateData, profile.value);
     }
 
-    const updatedUser = await User.findOneAndUpdate({ _id: req.params.userId }, updateData, { new: true });
+    const updatedUser = await User.findOneAndUpdate({ _id: req.params.userId }, updateData, { new: true })
+      .select(HIDDEN_USER_FIELDS);
 
     if (!updatedUser) {
       return res.status(404).send({ message: 'User not found with id ' + req.params.userId });
@@ -347,7 +396,10 @@ const updateUser = async function (req, res) {
 };
 
 // Delete User API
-const deleteUser = function (req, res) {
+const deleteUser = async function (req, res) {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
   User.remove(
     {
       _id: req.params.userId
@@ -415,6 +467,46 @@ const logout = async (req, res) => {
   }
 };
 
+const refreshAccessToken = async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) {
+      return res.status(400).json({ message: 'Refresh token is required' });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    } catch (error) {
+      return res.status(401).json({ message: 'Invalid or expired refresh token' });
+    }
+    if (decoded.type !== 'refresh') {
+      return res.status(401).json({ message: 'Invalid or expired refresh token' });
+    }
+
+    const stored = await Token.findOne({ token: refreshToken, type: 'refresh', blacklisted: false });
+    if (!stored || stored.expires < new Date()) {
+      return res.status(401).json({ message: 'Invalid or expired refresh token' });
+    }
+
+    const user = await User.findById(decoded.sub);
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid or expired refresh token' });
+    }
+
+    const accessTokenExpires = moment().add(12, 'hours');
+    res.json({
+      access: {
+        token: generateToken(user.id, accessTokenExpires, 'access'),
+        expires: accessTokenExpires.toDate()
+      }
+    });
+  } catch (error) {
+    console.error('Refresh token error:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
 const resetPassword = async (req, res) => {
   const { token } = req.params;
   const { password } = req.body;
@@ -454,6 +546,7 @@ module.exports = {
   forgotPassword,
   getUserByEmailAndPassword,
   logout,
+  refreshAccessToken,
   getAllUsersWithMealCounts,
   resetPassword,
   getUserByMobileNumberAndOtp,

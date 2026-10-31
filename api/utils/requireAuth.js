@@ -20,6 +20,10 @@ const requireAuth = async (req, res) => {
     res.status(401).json({ message: 'Invalid Token' });
     return null;
   }
+  if (decoded.type !== 'access') {
+    res.status(401).json({ message: 'Invalid Token' });
+    return null;
+  }
   const user = await User.findById(decoded.sub);
   if (!user) {
     res.status(401).json({ message: 'User not found' });

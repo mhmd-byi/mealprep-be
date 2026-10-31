@@ -16,6 +16,7 @@ const userRoutes = function(app) {
     .delete(user.deleteUser);
 
   app.route('/user/logout').post(user.logout);
+  app.route('/user/refresh-token').post(user.refreshAccessToken);
 
   app.route('/user/forgot-password').post(user.forgotPassword);
   app.route('/user/reset-password/:token').post(user.resetPassword);
