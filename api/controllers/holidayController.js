@@ -1,11 +1,12 @@
 const Holiday = require('../models/holidayModel');
-const { parseCalendarDate, addCalendarDays, diffInCalendarDays } = require('../utils/dateUtils');
+const { parseCalendarDate, addCalendarDays, diffInCalendarDays, calendarDateKey } = require('../utils/dateUtils');
+const { notifyHolidayAdded } = require('../utils/holidayNotifications');
 
 const MAX_HOLIDAY_RANGE_DAYS = 90;
 
 const addHoliday = async (req, res) => {
     try {
-        const { startDate, endDate, date, description } = req.body;
+        const { startDate, endDate, date, description, clientType } = req.body;
 
         if (!description) {
             return res.status(400).json({ message: 'Description is required' });
@@ -33,6 +34,13 @@ const addHoliday = async (req, res) => {
             holidayDocs.push({ date: addCalendarDays(rangeStart, i), description });
         }
         const response = await Holiday.insertMany(holidayDocs);
+
+        if (clientType === 'mobile') {
+            const rangeLabel = spanDays > 1
+                ? `${calendarDateKey(rangeStart)} to ${calendarDateKey(rangeEnd)}`
+                : calendarDateKey(rangeStart);
+            notifyHolidayAdded(rangeLabel, description);
+        }
 
         res.status(200).json({
             message: spanDays > 1

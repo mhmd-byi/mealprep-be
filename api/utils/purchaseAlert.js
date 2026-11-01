@@ -11,7 +11,7 @@ const LUNCH_DINNER_LABELS = {
   lunchAndDinner: 'Lunch and Dinner'
 };
 
-const sendAdminPurchaseAlert = async (subscription, lunchDinner, isQueued) => {
+const sendAdminPurchaseAlert = async (subscription, lunchDinner, isQueued, { manualReason, paymentMethod } = {}) => {
   try {
     const user = await User.findById(subscription.userId);
     if (!user) return;
@@ -24,7 +24,9 @@ const sendAdminPurchaseAlert = async (subscription, lunchDinner, isQueued) => {
       to: [{ email: ADMIN_ALERT_EMAIL, name: 'Admin' }],
       subject: `${isQueued ? 'Queued Subscription' : 'New Subscription'}: ${name}`,
       text:
-        `A new subscription has been ${isQueued ? 'queued' : 'received'} from the Mealprep mobile app.\n\n` +
+        (manualReason
+          ? `A new subscription has been added manually by an admin from the Mealprep mobile app!\n\n`
+          : `A new subscription has been ${isQueued ? 'queued' : 'received'} from the Mealprep mobile app.\n\n`) +
         `--- CUSTOMER DETAILS ---\n` +
         `Name: ${name}\nEmail: ${user.email}\nMobile: ${user.mobile}\nUser ID: ${user._id}\n\n` +
         `--- SUBSCRIPTION DETAILS ---\n` +
@@ -39,7 +41,9 @@ const sendAdminPurchaseAlert = async (subscription, lunchDinner, isQueued) => {
           spiceLevel: subscription.spiceLevel || '',
           flavourPreferences: subscription.flavourPreferences || []
         })}\n` +
-        `Payment ID: ${subscription.paymentId}\nOrder ID: ${subscription.orderId}\n\n` +
+        (manualReason
+          ? `Payment Method: ${paymentMethod || 'Not recorded'}\nReason: ${manualReason}\n\n`
+          : `Payment ID: ${subscription.paymentId}\nOrder ID: ${subscription.orderId}\n\n`) +
         (isQueued
           ? `This plan is QUEUED and will activate when the user's current plan runs out.`
           : `Please update the system accordingly.`)

@@ -30,6 +30,7 @@ const tasteOptionRoutes = require('./api/routes/tasteOptionRoutes');
 const professionOptionRoutes = require('./api/routes/professionOptionRoutes');
 const noteRoutes = require('./api/routes/noteRoutes');
 const feedbackRoutes = require('./api/routes/feedbackRoutes');
+const adminUploadRoutes = require('./api/routes/adminUploadRoutes');
 
 const corsOptions = {
   origin: '*', // Adjust this to match the domain you want to allow
@@ -54,7 +55,7 @@ mongoose
     console.log('Unable to connect', err);
   });
 
-app.use('/user/:userId/profile-photo', bodyParser.json({ limit: '3mb' }));
+app.use(['/user/:userId/profile-photo', '/admin/upload-image'], bodyParser.json({ limit: '3mb' }));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(
   bodyParser.json({
@@ -93,6 +94,7 @@ tasteOptionRoutes.tasteOptionRoutes(app); // register taste preference option ro
 professionOptionRoutes.professionOptionRoutes(app); // register profession option routes
 noteRoutes.noteRoutes(app); // register notes and note category routes
 feedbackRoutes.feedbackRoutes(app); // register customer feedback route
+adminUploadRoutes.adminUploadRoutes(app);
 
 app.listen(port, () => {
   console.log('Node.js + MongoDB RESTful API server started on: ' + port);

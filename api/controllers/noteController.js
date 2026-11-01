@@ -6,6 +6,7 @@ const User = require('../models/userModel');
 const { requireAdmin } = require('../utils/requireAdmin');
 const { getExcludedUserIds } = require('../utils/excludedAccounts');
 const { nowIST } = require('../utils/dateUtils');
+const { deleteImageByUrl } = require('../utils/s3Storage');
 
 const PRIORITIES = ['high', 'medium', 'low'];
 const MAX_ATTACHMENTS = 5;
@@ -283,8 +284,12 @@ const updateNote = async (req, res) => {
       return res.status(400).json({ message: checked.error });
     }
 
+    const keptUrls = new Set(checked.value.attachments.map((attachment) => attachment.url));
+    const removedAttachments = (note.attachments || []).filter((attachment) => !keptUrls.has(attachment.url));
+
     Object.assign(note, checked.value, { updatedBy: authorOf(admin) });
     await note.save();
+    removedAttachments.forEach((attachment) => deleteImageByUrl(attachment.url));
     await logNoteActivity(admin, 'updated', note.title);
 
     res.json(await loadShapedNote(note._id));
@@ -330,6 +335,7 @@ const deleteNote = async (req, res) => {
       return res.status(404).json({ message: 'Note not found.' });
     }
     await logNoteActivity(admin, 'deleted', note.title);
+    (note.attachments || []).forEach((attachment) => deleteImageByUrl(attachment.url));
 
     res.json({ message: 'Note deleted successfully.', attachments: note.attachments || [] });
   } catch (error) {

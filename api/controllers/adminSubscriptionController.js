@@ -13,6 +13,7 @@ const {
 } = require('./subscriptionController');
 const { cleanTastePreferences } = require('../utils/tastePreferences');
 const { logSubscriptionActivity } = require('../utils/subscriptionActivity');
+const { sendAdminPurchaseAlert } = require('../utils/purchaseAlert');
 
 const VALID_PLANS = ['Trial Meal Pack', 'Weekly Plan', 'Monthly Plan'];
 const VALID_LUNCH_DINNER = ['lunch', 'dinner', 'lunchAndDinner'];
@@ -64,7 +65,7 @@ const createAdminSubscription = async (req, res) => {
 
     const {
       userId, plan, totalMeals, lunchDinner, mealType, carbType,
-      subscriptionStartDate, mealStartDate, allergy, spiceLevel, flavourPreferences, paymentMethod, paymentId, reason
+      subscriptionStartDate, mealStartDate, allergy, spiceLevel, flavourPreferences, paymentMethod, paymentId, reason, clientType
     } = req.body;
 
     if (!reason || !reason.trim()) {
@@ -152,6 +153,9 @@ const createAdminSubscription = async (req, res) => {
       after: snapshot(subscription)
     });
     await logSubscriptionActivity(subscription);
+    if (clientType === 'mobile') {
+      sendAdminPurchaseAlert(subscription, lunchDinner, status === 'queued', { manualReason: reason.trim(), paymentMethod });
+    }
 
     res.status(201).json(subscription);
   } catch (error) {
