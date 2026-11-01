@@ -54,6 +54,7 @@ mongoose
     console.log('Unable to connect', err);
   });
 
+app.use('/user/:userId/profile-photo', bodyParser.json({ limit: '3mb' }));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(
   bodyParser.json({

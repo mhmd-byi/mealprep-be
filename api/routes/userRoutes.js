@@ -1,4 +1,5 @@
 const user = require('../controllers/userController');
+const { uploadProfilePhoto } = require('../controllers/profilePhotoController');
 const userRoutes = function(app) {
   app
     .route('/user')
@@ -17,6 +18,7 @@ const userRoutes = function(app) {
 
   app.route('/user/logout').post(user.logout);
   app.route('/user/refresh-token').post(user.refreshAccessToken);
+  app.route('/user/:userId/profile-photo').post(uploadProfilePhoto);
 
   app.route('/user/forgot-password').post(user.forgotPassword);
   app.route('/user/reset-password/:token').post(user.resetPassword);

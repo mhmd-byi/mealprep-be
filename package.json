@@ -24,6 +24,7 @@
     "standard": "^14.3.1"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1161.0",
     "@emailjs/nodejs": "^2.2.0",
     "axios": "^1.7.9",
     "bcrypt": "^5.1.1",
