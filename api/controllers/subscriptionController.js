@@ -25,6 +25,7 @@ const { sendWhatsAppMessage } = require('../utils/sendWhatsApp');
 const { getExcludedUserIds, isExcludedUser } = require('../utils/excludedAccounts');
 const { cleanTastePreferences, describeTastePreferences } = require('../utils/tastePreferences');
 const { logSubscriptionActivity } = require('../utils/subscriptionActivity');
+const { sendAdminPurchaseAlert } = require('../utils/purchaseAlert');
 
 // Admin/staff accounts sometimes carry their own test subscription — never
 // notify those, only real customers.
@@ -1066,7 +1067,7 @@ const createRazorpayOrder = async (req, res) => {
 
 const verifyPayment = async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals, mealType, carbType, lunchDinner, mealStartDate, allergy, spiceLevel, flavourPreferences } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals, mealType, carbType, lunchDinner, mealStartDate, allergy, spiceLevel, flavourPreferences, clientType } = req.body;
 
     console.log('Verifying payment for order:', razorpay_order_id);
 
@@ -1147,6 +1148,9 @@ const verifyPayment = async (req, res) => {
     console.log(`Subscription saved as '${newStatus}' for order:`, razorpay_order_id);
     notifyPurchase(userId, plan, mealCount, savedSubscription.subscriptionStartDate);
     await logSubscriptionActivity(savedSubscription);
+    if (clientType === 'mobile') {
+      sendAdminPurchaseAlert(savedSubscription, lunchDinner, newStatus === 'queued');
+    }
 
     res.status(201).json({
       ...savedSubscription.toObject(),
