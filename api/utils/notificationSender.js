@@ -4,6 +4,7 @@ const { sendPushMessages } = require('./pushService');
 const { resolveAudience } = require('./notificationAudience');
 
 const INSERT_CHUNK = 500;
+const BODY_MAX = 500;
 
 const ALLOWED_ROUTES = ['', '/home', '/my-plan', '/menu', '/meals', '/plans', '/cancel-meals', '/customise-meal', '/help', '/profile'];
 
@@ -86,7 +87,7 @@ const deliverCampaign = async (notificationId) => {
       return {
         userId: recipient.id,
         title: clip(render(notification.title, values), 65),
-        body: clip(render(notification.body, values), 240)
+        body: clip(render(notification.body, values), BODY_MAX)
       };
     });
     const result = await deliverItems(notification, items);
@@ -111,4 +112,4 @@ const claimAndDeliver = async (notificationId) => {
   if (claimed) await deliverCampaign(claimed._id);
 };
 
-module.exports = { deliverItems, deliverCampaign, claimAndDeliver, render, clip, ALLOWED_ROUTES };
+module.exports = { deliverItems, deliverCampaign, claimAndDeliver, render, clip, ALLOWED_ROUTES, BODY_MAX };

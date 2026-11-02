@@ -13,7 +13,7 @@ const { sendPushMessages, isExpoToken } = require('../utils/pushService');
 const { loadSettings, DEFAULT_REMINDERS, REMINDER_KEYS } = require('../utils/autoReminders');
 
 const TITLE_MAX = 65;
-const BODY_MAX = 240;
+const BODY_MAX = 500;
 const MIN_SCHEDULE_LEAD_MS = 60 * 1000;
 const ADMIN_CATEGORIES = ['announcement', 'service'];
 

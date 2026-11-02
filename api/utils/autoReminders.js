@@ -5,7 +5,10 @@ const NotificationSetting = require('../models/notificationSettingModel');
 const User = require('../models/userModel');
 const { getExcludedUserIds } = require('./excludedAccounts');
 const { projectExhaustionDate, loadHolidayKeys } = require('./planProjection');
-const { deliverItems, render, clip } = require('./notificationSender');
+const { DateTime } = require('luxon');
+const { sendWhatsAppMessage } = require('./sendWhatsApp');
+const { deliverItems, render, clip, BODY_MAX } = require('./notificationSender');
+const { resolveAudience } = require('./notificationAudience');
 const {
   nowIST,
   todayCalendarDateUTC,
@@ -45,10 +48,29 @@ const DEFAULT_REMINDERS = {
     days: [],
     sendAt: '15:00',
     route: '/cancel-meals'
+  },
+  'holiday-added': {
+    label: 'Holiday notice',
+    description:
+      'Sent straight away to customers who have meals left whenever you add a holiday. Placeholders: {date}, {holiday}, {name}.',
+    trigger: 'event',
+    enabled: true,
+    title: '📢 Important Holiday Update – MealPrep',
+    body:
+      'Dear Customer,\n\n' +
+      'Please note that MealPrep will remain closed on {date} on account of {holiday}.\n\n' +
+      'There will be no lunch or dinner deliveries on this day.\n\n' +
+      'Your missed meals will be adjusted in your meal balance accordingly.\n\n' +
+      'Team MealPrep\nHealthy Eating, Made Easy! 🥗',
+    days: [],
+    sendAt: '00:00',
+    route: ''
   }
 };
 
 const REMINDER_KEYS = Object.keys(DEFAULT_REMINDERS);
+
+const triggerOf = (key) => DEFAULT_REMINDERS[key].trigger || 'time';
 
 const loadSettings = async () => {
   const stored = await NotificationSetting.find({ key: { $in: REMINDER_KEYS } }).lean();
@@ -61,6 +83,7 @@ const loadSettings = async () => {
       label: defaults.label,
       description: defaults.description,
       route: defaults.route,
+      trigger: triggerOf(key),
       enabled: saved ? saved.enabled : defaults.enabled,
       title: saved ? saved.title : defaults.title,
       body: saved ? saved.body : defaults.body,
@@ -71,11 +94,11 @@ const loadSettings = async () => {
   });
 };
 
-const createAutoCampaign = (key, label, setting) =>
+const createAutoCampaign = (key, label, setting, category = 'reminder') =>
   Notification.create({
     title: setting.title,
     body: setting.body,
-    category: 'reminder',
+    category,
     route: DEFAULT_REMINDERS[key].route,
     filter: {},
     audienceSummary: `Automatic: ${label}`,
@@ -126,7 +149,7 @@ const runPlanEnding = async (setting) => {
     items.push({
       userId: sub.userId,
       title: clip(render(setting.title, values), 65),
-      body: clip(render(setting.body, values), 240),
+      body: clip(render(setting.body, values), BODY_MAX),
       dedupeKey: `plan-ending:${sub._id}:${daysUntil}`
     });
   });
@@ -167,7 +190,7 @@ const runMealDay = async (slot, setting) => {
       return {
         userId: sub.userId,
         title: clip(render(setting.title, values), 65),
-        body: clip(render(setting.body, values), 240),
+        body: clip(render(setting.body, values), BODY_MAX),
         dedupeKey: `meal-day:${slot}:${todayKey}`
       };
     });
@@ -192,6 +215,79 @@ const runReminder = async (setting) => {
   }
 };
 
+const formatHolidayDates = (startKey, endKey) => {
+  const format = (key, pattern) => DateTime.fromISO(key, { zone: 'utc' }).toFormat(pattern);
+  if (!endKey || endKey === startKey) return format(startKey, 'ccc, d LLL yyyy');
+  const sameYear = startKey.slice(0, 4) === endKey.slice(0, 4);
+  return `${format(startKey, sameYear ? 'ccc, d LLL' : 'ccc, d LLL yyyy')} to ${format(endKey, 'ccc, d LLL yyyy')}`;
+};
+
+const holidayMessage = (setting, { startKey, endKey, description }) => {
+  const values = { date: formatHolidayDates(startKey, endKey), holiday: description };
+  return { title: render(setting.title, values), body: render(setting.body, values) };
+};
+
+const WHATSAPP_BATCH = 10;
+
+const sendHolidayWhatsApp = async (recipients, dateLabel, description) => {
+  if (!process.env.AISENSY_HOLIDAY_CAMPAIGN) return;
+  for (let i = 0; i < recipients.length; i += WHATSAPP_BATCH) {
+    await Promise.all(
+      recipients.slice(i, i + WHATSAPP_BATCH).map((recipient) =>
+        sendWhatsAppMessage({
+          campaignEnvVar: 'AISENSY_HOLIDAY_CAMPAIGN',
+          mobileNumber: recipient.mobile,
+          customerName: recipient.firstName,
+          templateParams: [dateLabel, description]
+        })
+      )
+    );
+  }
+};
+
+const sendHolidayNotification = async ({ startKey, endKey, description }) => {
+  try {
+    const setting = (await loadSettings()).find((entry) => entry.key === 'holiday-added');
+    if (!setting || !setting.enabled) return;
+    if (endKey < nowIST().toFormat('yyyy-MM-dd')) return;
+
+    const { recipients } = await resolveAudience({ statuses: ['active'] }, 'service');
+    const withMeals = recipients.filter((recipient) => recipient.lunchLeft + recipient.dinnerLeft > 0);
+    if (withMeals.length === 0) return;
+
+    const message = holidayMessage(setting, { startKey, endKey, description });
+    const campaign = await createAutoCampaign('holiday-added', setting.label, { title: message.title, body: message.body }, 'service');
+    campaign.filter = { statuses: ['active'] };
+    campaign.audienceSummary = 'Customers with meals left · holiday notice';
+
+    const dedupe = `holiday:${startKey}:${endKey}:${String(description).toLowerCase().trim().slice(0, 40)}`;
+    try {
+      const result = await deliverItems(
+        campaign,
+        withMeals.map((recipient) => {
+          const values = { name: recipient.firstName || 'there' };
+          return {
+            userId: recipient.id,
+            title: clip(render(message.title, values), 65),
+            body: clip(render(message.body, values), BODY_MAX),
+            dedupeKey: dedupe
+          };
+        })
+      );
+      await finishCampaign(campaign, result);
+    } catch (error) {
+      console.error('Holiday notice failed:', error);
+      campaign.status = 'failed';
+      campaign.errorMessage = String(error.message || error).slice(0, 300);
+      await campaign.save();
+    }
+
+    await sendHolidayWhatsApp(withMeals, formatHolidayDates(startKey, endKey), description);
+  } catch (error) {
+    console.error('Holiday notice could not start:', error.message);
+  }
+};
+
 const minutesOf = (hhmm) => {
   const [hours, minutes] = String(hhmm || '').split(':').map(Number);
   return Number.isFinite(hours) && Number.isFinite(minutes) ? hours * 60 + minutes : null;
@@ -212,7 +308,7 @@ const runDueAutoReminders = async () => {
   const settings = await loadSettings();
 
   for (const setting of settings) {
-    if (!isDue(setting, nowMinutes, todayKey)) continue;
+    if (setting.trigger === 'event' || !isDue(setting, nowMinutes, todayKey)) continue;
     await NotificationSetting.findOneAndUpdate(
       { key: setting.key },
       { $set: { lastRunDate: todayKey }, $setOnInsert: { enabled: setting.enabled, title: setting.title, body: setting.body, days: setting.days, sendAt: setting.sendAt } },
@@ -222,4 +318,15 @@ const runDueAutoReminders = async () => {
   }
 };
 
-module.exports = { DEFAULT_REMINDERS, REMINDER_KEYS, loadSettings, runDueAutoReminders, runReminder, isDue, minutesOf };
+module.exports = {
+  DEFAULT_REMINDERS,
+  REMINDER_KEYS,
+  loadSettings,
+  runDueAutoReminders,
+  runReminder,
+  isDue,
+  minutesOf,
+  formatHolidayDates,
+  holidayMessage,
+  sendHolidayNotification
+};

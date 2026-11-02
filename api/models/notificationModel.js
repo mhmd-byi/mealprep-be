@@ -4,7 +4,7 @@ const Schema = mongoose.Schema;
 const notificationSchema = new Schema(
   {
     title: { type: String, required: true, trim: true, maxlength: 65 },
-    body: { type: String, required: true, trim: true, maxlength: 240 },
+    body: { type: String, required: true, trim: true, maxlength: 500 },
     category: { type: String, enum: ['announcement', 'service', 'reminder'], default: 'announcement' },
     route: { type: String, default: '' },
     filter: { type: Schema.Types.Mixed, default: {} },

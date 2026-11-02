@@ -2,6 +2,8 @@ const { MailtrapClient } = require('mailtrap');
 const Subscription = require('../models/subscriptionModel');
 const User = require('../models/userModel');
 const Activity = require('../models/activityModel');
+const { loadSettings, holidayMessage } = require('./autoReminders');
+const { render } = require('./notificationSender');
 
 const MEALS_LEFT = {
   $add: [
@@ -12,13 +14,16 @@ const MEALS_LEFT = {
   ]
 };
 
-const notifyHolidayAdded = async (rangeLabel, description) => {
+const notifyHolidayAdded = async ({ rangeLabel, startKey, endKey, description }) => {
   try {
     const userIds = await Subscription.distinct('userId', {
       status: 'active',
       $expr: { $gt: [MEALS_LEFT, 0] }
     });
     if (userIds.length === 0) return;
+
+    const setting = (await loadSettings()).find((entry) => entry.key === 'holiday-added');
+    const message = holidayMessage(setting, { startKey, endKey, description });
 
     const today = new Date();
     await Activity.insertMany(
@@ -40,11 +45,8 @@ const notifyHolidayAdded = async (rangeLabel, description) => {
         await client.send({
           from: sender,
           to: [{ email: user.email, name: `${user.firstName || ''} ${user.lastName || ''}`.trim() }],
-          subject: 'New Holiday Added!',
-          text:
-            `Dear Customer,\n\n` +
-            `We wanted to inform you that there is a holiday on ${rangeLabel}, due to ${description}. Please plan accordingly.\n\n` +
-            `Team Mealprep\n`
+          subject: message.title,
+          text: render(message.body, { name: user.firstName || 'there' })
         });
       } catch (error) {
         console.error('Holiday email failed for a customer:', error.message);
