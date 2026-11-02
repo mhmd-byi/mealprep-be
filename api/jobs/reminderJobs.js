@@ -14,6 +14,7 @@ const {
   calendarDayOfWeek,
   diffInCalendarDays
 } = require('../utils/dateUtils');
+const { projectExhaustionDate } = require('../utils/planProjection');
 require('dotenv').config();
 
 const TIMEZONE = IST_ZONE;
@@ -21,9 +22,6 @@ const THRESHOLD_FIELD = { 7: 'sevenDay', 3: 'threeDay', 1: 'oneDay' };
 // WhatsApp only goes out at 3-day and 1-day — 7-day stays email-only.
 const WHATSAPP_FIELD = { 3: 'threeDayWhatsapp', 1: 'oneDayWhatsapp' };
 const REMINDER_THRESHOLDS = Object.keys(THRESHOLD_FIELD).map(Number);
-// Meals-remaining is the day-proxy (see checkAndSendExpirationReminders), so a
-// plan can never have more runway than this many delivery days.
-const SIMULATION_SAFETY_CAP_DAYS = 3650;
 
 const sendReminderEmail = async (toEmail, toName, subject, text) => {
   const client = new MailtrapClient({ token: process.env.MAILTRAP_API_TOKEN });
@@ -57,21 +55,6 @@ const sendReminderWhatsApp = async (mobileNumber, customerName, templateParams) 
     }
   });
   return true;
-};
-
-const projectExhaustionDate = (remaining, holidayDateKeys) => {
-  let date = todayCalendarDateUTC();
-  let daysLeft = remaining;
-  for (let i = 0; i < SIMULATION_SAFETY_CAP_DAYS; i++) {
-    const isSunday = calendarDayOfWeek(date) === 0;
-    const isHoliday = holidayDateKeys.has(calendarDateKey(date));
-    if (!isSunday && !isHoliday) {
-      daysLeft -= 1;
-      if (daysLeft === 0) return date;
-    }
-    date = addCalendarDays(date, 1);
-  }
-  return date;
 };
 
 const formatDateLabel = (date) =>

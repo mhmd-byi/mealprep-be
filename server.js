@@ -7,6 +7,7 @@ require('dotenv').config()
 const mongoose = require('mongoose');
 require('./api/jobs/mealJobs');
 require('./api/jobs/reminderJobs');
+require('./api/jobs/notificationJobs');
 require('./api/jobs/subscriptionSnapshotJob');
 
 // eslint-disable-next-line no-unused-vars
@@ -31,6 +32,7 @@ const professionOptionRoutes = require('./api/routes/professionOptionRoutes');
 const noteRoutes = require('./api/routes/noteRoutes');
 const feedbackRoutes = require('./api/routes/feedbackRoutes');
 const adminUploadRoutes = require('./api/routes/adminUploadRoutes');
+const notificationRoutes = require('./api/routes/notificationRoutes');
 
 const corsOptions = {
   origin: '*', // Adjust this to match the domain you want to allow
@@ -95,6 +97,7 @@ professionOptionRoutes.professionOptionRoutes(app); // register profession optio
 noteRoutes.noteRoutes(app); // register notes and note category routes
 feedbackRoutes.feedbackRoutes(app); // register customer feedback route
 adminUploadRoutes.adminUploadRoutes(app);
+notificationRoutes.notificationRoutes(app);
 
 app.listen(port, () => {
   console.log('Node.js + MongoDB RESTful API server started on: ' + port);

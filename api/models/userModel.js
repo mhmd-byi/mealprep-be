@@ -65,6 +65,12 @@ const userSchema = new Schema({
     type: String,
     default: ''
   },
+  notificationPrefs: {
+    announcements: {
+      type: Boolean,
+      default: true
+    }
+  },
   created_date: {
     type: Date,
     default: Date.now
