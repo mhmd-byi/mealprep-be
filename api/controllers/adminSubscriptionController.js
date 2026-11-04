@@ -41,7 +41,7 @@ const snapshot = (sub) => ({
   paymentId: sub.paymentId
 });
 
-const logAction = ({ admin, userId, subscriptionId, action, reason, before, after }) =>
+const logAction = ({ admin, userId, subscriptionId, action, reason, before, after, revenueAffected }) =>
   SubscriptionAuditLog.create({
     adminId: admin._id,
     adminName: `${admin.firstName} ${admin.lastName}`,
@@ -51,7 +51,8 @@ const logAction = ({ admin, userId, subscriptionId, action, reason, before, afte
     action,
     reason,
     before,
-    after
+    after,
+    revenueAffected
   });
 
 // Admin-authorized subscription creation — bypasses payment. Active-vs-queued
@@ -173,7 +174,8 @@ const updateAdminSubscription = async (req, res) => {
     if (!admin) return;
 
     const { subscriptionId } = req.params;
-    const { reason, fieldUpdates = {}, mealDeltas = {} } = req.body;
+    const { reason, fieldUpdates = {}, mealDeltas = {}, affectsRevenue } = req.body;
+    const revenueAffected = affectsRevenue === true;
 
     if (!reason || !reason.trim()) {
       return res.status(400).json({ message: 'A reason is required for this action.' });
@@ -261,7 +263,7 @@ const updateAdminSubscription = async (req, res) => {
         }
       }
     });
-    if (netDelta !== 0) {
+    if (netDelta !== 0 && revenueAffected) {
       sub.totalMeals = Math.max(0, (sub.totalMeals || 0) + netDelta);
     }
 
@@ -290,7 +292,8 @@ const updateAdminSubscription = async (req, res) => {
       action: 'update',
       reason,
       before,
-      after: snapshot(sub)
+      after: snapshot(sub),
+      revenueAffected: netDelta !== 0 ? revenueAffected : undefined
     });
 
     // Surfaced to the customer's own Meal Tracking feed too, not just the

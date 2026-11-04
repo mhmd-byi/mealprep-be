@@ -31,6 +31,7 @@ const subscriptionAuditLogSchema = new Schema(
       type: String,
       required: true
     },
+    revenueAffected: { type: Boolean },
     before: { type: Schema.Types.Mixed, default: null },
     after: { type: Schema.Types.Mixed, default: null }
   },
