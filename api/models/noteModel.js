@@ -22,7 +22,9 @@ const authorSchema = new Schema(
 const noteSchema = new Schema(
   {
     title: { type: String, required: true, trim: true, maxlength: 120 },
-    body: { type: String, default: '', trim: true, maxlength: 2000 },
+    body: { type: String, default: '', trim: true, maxlength: 40000 },
+    bodyText: { type: String, default: '', maxlength: 10000 },
+    bodyFormat: { type: String, enum: ['text', 'html'], default: 'text' },
     category: { type: String, default: '', trim: true },
     priority: { type: String, enum: Object.keys(PRIORITY_RANK), default: 'medium' },
     priorityRank: { type: Number, default: PRIORITY_RANK.medium },

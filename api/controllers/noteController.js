@@ -7,7 +7,10 @@ const { requireAdmin } = require('../utils/requireAdmin');
 const { getExcludedUserIds } = require('../utils/excludedAccounts');
 const { nowIST } = require('../utils/dateUtils');
 const { deleteImageByUrl } = require('../utils/s3Storage');
+const { normalizeNoteBody } = require('../utils/noteHtml');
 
+const BODY_RAW_MAX = 60000;
+const BODY_TEXT_MAX = 10000;
 const PRIORITIES = ['high', 'medium', 'low'];
 const MAX_ATTACHMENTS = 5;
 const DEFAULT_PAGE_SIZE = 6;
@@ -47,7 +50,12 @@ const shapeNote = (note) => {
         mobile: customerId.mobile || ''
       }
     : null;
-  return { ...rest, customer };
+  return {
+    ...rest,
+    bodyFormat: note.bodyFormat || 'text',
+    bodyText: note.bodyText !== undefined ? note.bodyText : note.body || '',
+    customer
+  };
 };
 
 const loadShapedNote = async (noteId) => {
@@ -78,7 +86,9 @@ const buildListFilter = ({ search, category, status, quick, pending }) => {
   if (pending) clauses.push({ isDone: false, dueAt: { $ne: null } });
   if (search) {
     const pattern = new RegExp(escapeRegex(search.slice(0, 100)), 'i');
-    clauses.push({ $or: [{ title: pattern }, { body: pattern }] });
+    clauses.push({
+      $or: [{ title: pattern }, { bodyText: pattern }, { bodyText: { $exists: false }, body: pattern }]
+    });
   }
   const period = periodClause(quick);
   if (period) clauses.push(period);
@@ -90,8 +100,10 @@ const validateNoteInput = async (input = {}) => {
   if (!title) return { error: 'A title is required.' };
   if (title.length > 120) return { error: 'The title must be 120 characters or fewer.' };
 
-  const body = typeof input.body === 'string' ? input.body.trim() : '';
-  if (body.length > 2000) return { error: 'The details must be 2000 characters or fewer.' };
+  const rawBody = typeof input.body === 'string' ? input.body : '';
+  if (rawBody.length > BODY_RAW_MAX) return { error: 'The details are too long.' };
+  const { body, bodyText, bodyFormat } = normalizeNoteBody(rawBody, input.bodyFormat === 'html' ? 'html' : 'text');
+  if (bodyText.length > BODY_TEXT_MAX) return { error: 'The details must be 10,000 characters or fewer.' };
 
   const priority = input.priority || 'medium';
   if (!PRIORITIES.includes(priority)) return { error: `priority must be one of: ${PRIORITIES.join(', ')}` };
@@ -130,7 +142,7 @@ const validateNoteInput = async (input = {}) => {
     attachments.push({ url: item.url, name: typeof item.name === 'string' ? item.name.slice(0, 120) : '' });
   }
 
-  return { value: { title, body, category, priority, dueAt, customerId, attachments } };
+  return { value: { title, body, bodyText, bodyFormat, category, priority, dueAt, customerId, attachments } };
 };
 
 const listNotes = async (req, res) => {
