@@ -52,14 +52,14 @@ const DEFAULT_REMINDERS = {
   'holiday-added': {
     label: 'Holiday notice',
     description:
-      'Sent straight away to customers who have meals left whenever you add a holiday. Placeholders: {date}, {holiday}, {name}.',
+      'Sent straight away to customers who have meals left whenever you add a holiday. Placeholders: {when} (becomes "on <date>" for one day, "from <date> to <date>" for a range), {thisDay} (this day / these days), {holiday}, {name}.',
     trigger: 'event',
     enabled: true,
     title: '📢 Important Holiday Update – MealPrep',
     body:
       'Dear Customer,\n\n' +
-      'Please note that MealPrep will remain closed on {date} on account of {holiday}.\n\n' +
-      'There will be no lunch or dinner deliveries on this day.\n\n' +
+      'Please note that MealPrep will remain closed {when} on account of {holiday}.\n\n' +
+      'There will be no lunch or dinner deliveries on {thisDay}.\n\n' +
       'Your missed meals will be adjusted in your meal balance accordingly.\n\n' +
       'Team MealPrep\nHealthy Eating, Made Easy! 🥗',
     days: [],
@@ -215,30 +215,45 @@ const runReminder = async (setting) => {
   }
 };
 
+const formatHolidayKey = (key, pattern = 'ccc, d LLL yyyy') => DateTime.fromISO(key, { zone: 'utc' }).toFormat(pattern);
+
+const isHolidayRange = (startKey, endKey) => Boolean(endKey) && endKey !== startKey;
+
 const formatHolidayDates = (startKey, endKey) => {
-  const format = (key, pattern) => DateTime.fromISO(key, { zone: 'utc' }).toFormat(pattern);
-  if (!endKey || endKey === startKey) return format(startKey, 'ccc, d LLL yyyy');
+  if (!isHolidayRange(startKey, endKey)) return formatHolidayKey(startKey);
   const sameYear = startKey.slice(0, 4) === endKey.slice(0, 4);
-  return `${format(startKey, sameYear ? 'ccc, d LLL' : 'ccc, d LLL yyyy')} to ${format(endKey, 'ccc, d LLL yyyy')}`;
+  return `${formatHolidayKey(startKey, sameYear ? 'ccc, d LLL' : undefined)} to ${formatHolidayKey(endKey)}`;
 };
 
 const holidayMessage = (setting, { startKey, endKey, description }) => {
-  const values = { date: formatHolidayDates(startKey, endKey), holiday: description };
+  const range = isHolidayRange(startKey, endKey);
+  const date = formatHolidayDates(startKey, endKey);
+  const values = {
+    date,
+    when: `${range ? 'from' : 'on'} ${date}`,
+    thisDay: range ? 'these days' : 'this day',
+    holiday: description
+  };
   return { title: render(setting.title, values), body: render(setting.body, values) };
 };
 
 const WHATSAPP_BATCH = 10;
 
-const sendHolidayWhatsApp = async (recipients, dateLabel, description) => {
-  if (!process.env.AISENSY_HOLIDAY_CAMPAIGN) return;
+const sendHolidayWhatsApp = async (recipients, { startKey, endKey, description }) => {
+  const range = isHolidayRange(startKey, endKey);
+  const campaignEnvVar = range ? 'AISENSY_HOLIDAY_RANGE_CAMPAIGN' : 'AISENSY_HOLIDAY_CAMPAIGN';
+  if (!process.env[campaignEnvVar]) return;
+  const templateParams = range
+    ? [formatHolidayKey(startKey), formatHolidayKey(endKey), description]
+    : [formatHolidayKey(startKey), description];
   for (let i = 0; i < recipients.length; i += WHATSAPP_BATCH) {
     await Promise.all(
       recipients.slice(i, i + WHATSAPP_BATCH).map((recipient) =>
         sendWhatsAppMessage({
-          campaignEnvVar: 'AISENSY_HOLIDAY_CAMPAIGN',
+          campaignEnvVar,
           mobileNumber: recipient.mobile,
           customerName: recipient.firstName,
-          templateParams: [dateLabel, description]
+          templateParams
         })
       )
     );
@@ -282,7 +297,7 @@ const sendHolidayNotification = async ({ startKey, endKey, description }) => {
       await campaign.save();
     }
 
-    await sendHolidayWhatsApp(withMeals, formatHolidayDates(startKey, endKey), description);
+    await sendHolidayWhatsApp(withMeals, { startKey, endKey, description });
   } catch (error) {
     console.error('Holiday notice could not start:', error.message);
   }
