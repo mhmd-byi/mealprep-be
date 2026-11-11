@@ -18,6 +18,7 @@ const alacarteRoutes = function (app) {
 
   app.route('/admin/alacarte/orders').get(alacarte.listAdminOrders);
   app.route('/admin/alacarte/orders/:orderId/status').patch(alacarte.updateOrderStatus);
+  app.route('/admin/alacarte/orders/:orderId/check-payment').post(alacarte.checkOrderPayment);
   app.route('/admin/alacarte/orders/:orderId/attention').delete(alacarte.clearAttention);
   app.route('/admin/alacarte/settings').get(alacarte.getAdminSettings).put(alacarte.updateAdminSettings);
 };

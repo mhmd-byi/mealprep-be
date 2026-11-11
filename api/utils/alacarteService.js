@@ -277,7 +277,29 @@ const markPaid = async (orderId, paymentId) => {
   return revived || current;
 };
 
+const RECONCILE_AFTER_MINUTES = 2;
+
+const reconcilePayment = async (order) => {
+  if (!order || !order.razorpayOrderId || !['pending_payment', 'expired'].includes(order.status)) return { paid: false };
+  const result = await razorpay().orders.fetchPayments(order.razorpayOrderId);
+  const captured = (result.items || []).find((payment) => payment.status === 'captured');
+  if (!captured) return { paid: false };
+  const updated = await markPaid(order._id, captured.id);
+  const paid = Boolean(updated) && !['pending_payment', 'expired'].includes(updated.status);
+  return { paid, order: updated };
+};
+
 const expirePendingOrders = async () => {
+  const reconcileCutoff = new Date(Date.now() - RECONCILE_AFTER_MINUTES * 60 * 1000);
+  const waiting = await AlacarteOrder.find({ status: 'pending_payment', createdAt: { $lt: reconcileCutoff } });
+  for (const order of waiting) {
+    try {
+      await reconcilePayment(order);
+    } catch (error) {
+      console.error(`Could not check the payment for à la carte order ${order.orderNumber}:`, error.message || error);
+    }
+  }
+
   const cutoff = new Date(Date.now() - PENDING_PAYMENT_MINUTES * 60 * 1000);
   const stale = await AlacarteOrder.find({ status: 'pending_payment', createdAt: { $lt: cutoff } });
   for (const order of stale) {
@@ -304,6 +326,7 @@ module.exports = {
   getSettings,
   createOrder,
   markPaid,
+  reconcilePayment,
   expirePendingOrders,
   changeStatus,
   releaseStock

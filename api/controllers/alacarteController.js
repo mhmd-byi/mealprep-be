@@ -8,7 +8,7 @@ const { requireAuth } = require('../utils/requireAuth');
 const { requireAdmin } = require('../utils/requireAdmin');
 const { loadHolidayKeys } = require('../utils/planProjection');
 const { IST_ZONE, parseCalendarDate, calendarDateKey } = require('../utils/dateUtils');
-const { createOrder, markPaid, changeStatus, getSettings } = require('../utils/alacarteService');
+const { createOrder, markPaid, reconcilePayment, changeStatus, getSettings } = require('../utils/alacarteService');
 const {
   SLOT_LABELS,
   DELIVERY_DAYS_AHEAD,
@@ -48,6 +48,7 @@ const shapeOrder = (order) => ({
   slotLabel: SLOT_LABELS[order.deliverySlot],
   status: order.status,
   needsAttention: Boolean(order.needsAttention),
+  razorpayOrderId: order.razorpayOrderId || '',
   paymentId: order.paymentId || '',
   paidAt: order.paidAt || null,
   createdAt: order.createdAt,
@@ -166,6 +167,7 @@ const myOrders = async (req, res) => {
 };
 
 const OPEN_STATUSES = ['placed', 'confirmed', 'out_for_delivery'];
+const UNPAID_STATUSES = ['pending_payment', 'expired'];
 
 const listAdminOrders = async (req, res) => {
   try {
@@ -177,8 +179,9 @@ const listAdminOrders = async (req, res) => {
     const filter = {};
 
     if (req.query.status === 'open') filter.status = { $in: OPEN_STATUSES };
+    else if (req.query.status === 'unpaid') filter.status = { $in: UNPAID_STATUSES };
     else if (['placed', 'confirmed', 'out_for_delivery', 'delivered'].includes(req.query.status)) filter.status = req.query.status;
-    else filter.status = { $nin: ['pending_payment', 'expired'] };
+    else filter.status = { $nin: UNPAID_STATUSES };
 
     if (typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)) {
       filter.deliveryDate = parseCalendarDate(req.query.date);
@@ -191,7 +194,10 @@ const listAdminOrders = async (req, res) => {
     }
 
     const [orders, total, totals] = await Promise.all([
-      AlacarteOrder.find(filter).sort({ deliveryDate: 1, createdAt: -1 }).skip((page - 1) * limit).limit(limit),
+      AlacarteOrder.find(filter)
+        .sort(req.query.status === 'unpaid' ? { createdAt: -1 } : { deliveryDate: 1, createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit),
       AlacarteOrder.countDocuments(filter),
       AlacarteOrder.aggregate([{ $match: filter }, { $group: { _id: null, amount: { $sum: '$total' } } }])
     ]);
@@ -220,6 +226,24 @@ const updateOrderStatus = async (req, res) => {
     res.json(shapeOrder(updated));
   } catch (error) {
     serverError(res, 'updating an order status', error);
+  }
+};
+
+const checkOrderPayment = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    if (!mongoose.Types.ObjectId.isValid(req.params.orderId)) return res.status(404).json({ message: 'Order not found.' });
+
+    const order = await AlacarteOrder.findById(req.params.orderId);
+    if (!order) return res.status(404).json({ message: 'Order not found.' });
+    if (!UNPAID_STATUSES.includes(order.status)) return res.status(400).json({ message: 'This order is already paid.' });
+
+    const result = await reconcilePayment(order);
+    if (!result.paid) return res.status(404).json({ message: 'Razorpay shows no completed payment for this order.' });
+    res.json(shapeOrder(result.order));
+  } catch (error) {
+    serverError(res, 'checking an order payment', error);
   }
 };
 
@@ -269,6 +293,7 @@ module.exports = {
   myOrders,
   listAdminOrders,
   updateOrderStatus,
+  checkOrderPayment,
   clearAttention,
   getAdminSettings,
   updateAdminSettings
