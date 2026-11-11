@@ -6,7 +6,7 @@ const { resolveAudience } = require('./notificationAudience');
 const INSERT_CHUNK = 500;
 const BODY_MAX = 500;
 
-const ALLOWED_ROUTES = ['', '/home', '/my-plan', '/menu', '/meals', '/plans', '/cancel-meals', '/customise-meal', '/help', '/profile'];
+const ALLOWED_ROUTES = ['', '/home', '/my-plan', '/menu', '/meals', '/plans', '/cancel-meals', '/customise-meal', '/help', '/profile', '/alacarte', '/alacarte-orders'];
 
 const render = (template, values) =>
   String(template || '').replace(/\{(\w+)\}/g, (match, key) => (values[key] !== undefined ? String(values[key]) : match));

@@ -3,7 +3,7 @@ const { requireAdmin } = require('../utils/requireAdmin');
 const { isConfigured, uploadImage } = require('../utils/s3Storage');
 const { decodeImageBody } = require('../utils/imageUpload');
 
-const FOLDERS = ['note', 'meal', 'menu'];
+const FOLDERS = ['note', 'meal', 'menu', 'product'];
 
 const uploadAdminImage = async (req, res) => {
   try {

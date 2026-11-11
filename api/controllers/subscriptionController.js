@@ -26,6 +26,8 @@ const { getExcludedUserIds, isExcludedUser } = require('../utils/excludedAccount
 const { cleanTastePreferences, describeTastePreferences } = require('../utils/tastePreferences');
 const { logSubscriptionActivity } = require('../utils/subscriptionActivity');
 const { sendAdminPurchaseAlert } = require('../utils/purchaseAlert');
+const AlacarteOrder = require('../models/alacarteOrderModel');
+const { markPaid: markAlacarteOrderPaid } = require('../utils/alacarteService');
 
 // Admin/staff accounts sometimes carry their own test subscription — never
 // notify those, only real customers.
@@ -1245,6 +1247,17 @@ const handleRazorpayWebhook = async (req, res) => {
   if (event === 'payment.captured') {
     const payment = payload.payment.entity;
     const orderId = payment.order_id;
+
+    const alacarteOrder = await AlacarteOrder.findOne({ razorpayOrderId: orderId });
+    if (alacarteOrder) {
+      try {
+        await markAlacarteOrderPaid(alacarteOrder._id, payment.id);
+        return res.status(200).send('Processed');
+      } catch (error) {
+        console.error('Error processing à la carte webhook payment:', error);
+        return res.status(500).send('Processing error');
+      }
+    }
 
     // Idempotency: skip if already processed
     const existingSub = await Subscription.findOne({ orderId });

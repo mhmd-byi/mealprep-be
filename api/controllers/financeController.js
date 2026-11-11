@@ -4,6 +4,7 @@ const Subscription = require('../models/subscriptionModel');
 const Expense = require('../models/expenseModel');
 const ExpenseCategory = require('../models/expenseCategoryModel');
 const MealDelivery = require('../models/mealDeliveryModel');
+const AlacarteOrder = require('../models/alacarteOrderModel');
 const User = require('../models/userModel');
 const { requireAdmin } = require('../utils/requireAdmin');
 const { getExcludedUserIds } = require('../utils/excludedAccounts');
@@ -20,6 +21,18 @@ const {
 } = require('../utils/dateUtils');
 
 const OTHER_COLOR = '#898781';
+
+const PAID_ALACARTE_STATUSES = ['placed', 'confirmed', 'out_for_delivery', 'delivered'];
+
+// À la carte sales are reported on their own line: they never feed the
+// subscription revenue / actual-sale figures above.
+const alacarteSummary = async (start, end, excludedUserIds) => {
+  const [row] = await AlacarteOrder.aggregate([
+    { $match: { status: { $in: PAID_ALACARTE_STATUSES }, paidAt: { $gte: start, $lte: end }, userId: { $nin: excludedUserIds } } },
+    { $group: { _id: null, revenue: { $sum: '$total' }, orders: { $sum: 1 } } }
+  ]);
+  return { revenue: row ? Math.round(row.revenue * 100) / 100 : 0, orders: row ? row.orders : 0 };
+};
 // Categories beyond this many (by total spend in the range) fold into "Other"
 // in the month-by-month trend chart, so the stacked bar stays legible and the
 // same category set is used for every bucket (never a different mix per bar).
@@ -393,6 +406,11 @@ const getFinanceDashboard = async (req, res) => {
     );
     todaySales.actualSale = todayActualSaleResult.total;
 
+    const [alacarte, alacarteToday] = await Promise.all([
+      alacarteSummary(queryStart, queryEnd, excludedUserIds),
+      alacarteSummary(todayBounds.start, todayBounds.end, excludedUserIds)
+    ]);
+
     res.json({
       series,
       totals,
@@ -401,6 +419,7 @@ const getFinanceDashboard = async (req, res) => {
       planBreakdown,
       carbBreakdown,
       todaySales,
+      alacarte: { ...alacarte, today: alacarteToday },
       expenseCategoryBreakdown,
       expenseCategoryTrend,
       paymentMethodBreakdown,

@@ -8,6 +8,7 @@ const mongoose = require('mongoose');
 require('./api/jobs/mealJobs');
 require('./api/jobs/reminderJobs');
 require('./api/jobs/notificationJobs');
+require('./api/jobs/alacarteJobs');
 require('./api/jobs/subscriptionSnapshotJob');
 
 // eslint-disable-next-line no-unused-vars
@@ -33,6 +34,7 @@ const noteRoutes = require('./api/routes/noteRoutes');
 const feedbackRoutes = require('./api/routes/feedbackRoutes');
 const adminUploadRoutes = require('./api/routes/adminUploadRoutes');
 const notificationRoutes = require('./api/routes/notificationRoutes');
+const alacarteRoutes = require('./api/routes/alacarteRoutes');
 
 const corsOptions = {
   origin: '*', // Adjust this to match the domain you want to allow
@@ -98,6 +100,7 @@ noteRoutes.noteRoutes(app); // register notes and note category routes
 feedbackRoutes.feedbackRoutes(app); // register customer feedback route
 adminUploadRoutes.adminUploadRoutes(app);
 notificationRoutes.notificationRoutes(app);
+alacarteRoutes.alacarteRoutes(app);
 
 app.listen(port, () => {
   console.log('Node.js + MongoDB RESTful API server started on: ' + port);
