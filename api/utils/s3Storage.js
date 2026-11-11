@@ -36,14 +36,23 @@ const uploadImage = async ({ buffer, contentType, key }) => {
   return publicUrlFor(config, key);
 };
 
-const deleteImageByUrl = async (url) => {
+const keyFromUrl = (url) => {
   const config = readConfig();
-  if (!config || !url) return;
+  if (!config || !url) return null;
   try {
     const parsed = new URL(url);
-    if (parsed.hostname !== `${config.bucket}.s3.${config.region}.amazonaws.com`) return;
-    const key = decodeURIComponent(parsed.pathname.slice(1));
-    if (!key) return;
+    if (parsed.hostname !== `${config.bucket}.s3.${config.region}.amazonaws.com`) return null;
+    return decodeURIComponent(parsed.pathname.slice(1)) || null;
+  } catch (error) {
+    return null;
+  }
+};
+
+const deleteImageByUrl = async (url) => {
+  const key = keyFromUrl(url);
+  if (!key) return;
+  try {
+    const config = readConfig();
     const { DeleteObjectCommand } = require('@aws-sdk/client-s3');
     await getClient(config).send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
   } catch (error) {
@@ -51,4 +60,4 @@ const deleteImageByUrl = async (url) => {
   }
 };
 
-module.exports = { isConfigured, uploadImage, deleteImageByUrl };
+module.exports = { isConfigured, uploadImage, deleteImageByUrl, keyFromUrl };

@@ -1,6 +1,7 @@
 const crypto = require('crypto');
+const Note = require('../models/noteModel');
 const { requireAdmin } = require('../utils/requireAdmin');
-const { isConfigured, uploadImage } = require('../utils/s3Storage');
+const { isConfigured, uploadImage, deleteImageByUrl, keyFromUrl } = require('../utils/s3Storage');
 const { decodeImageBody } = require('../utils/imageUpload');
 
 const FOLDERS = ['note', 'meal', 'menu', 'product'];
@@ -31,4 +32,26 @@ const uploadAdminImage = async (req, res) => {
   }
 };
 
-module.exports = { uploadAdminImage };
+const deleteUnsavedNoteImage = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const url = typeof req.body.url === 'string' ? req.body.url : '';
+    const key = keyFromUrl(url);
+    if (!key || !key.startsWith('note-')) {
+      return res.status(400).json({ message: 'That image cannot be deleted here.' });
+    }
+    if (await Note.exists({ 'attachments.url': url })) {
+      return res.status(409).json({ message: 'That image is attached to a note.' });
+    }
+
+    await deleteImageByUrl(url);
+    res.json({ message: 'Image deleted.' });
+  } catch (error) {
+    console.error('Error deleting admin image:', error);
+    res.status(500).json({ message: 'Could not delete the image.' });
+  }
+};
+
+module.exports = { uploadAdminImage, deleteUnsavedNoteImage };

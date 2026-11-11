@@ -1,7 +1,7 @@
-const { uploadAdminImage } = require('../controllers/adminUploadController');
+const { uploadAdminImage, deleteUnsavedNoteImage } = require('../controllers/adminUploadController');
 
 const adminUploadRoutes = function(app) {
-  app.route('/admin/upload-image').post(uploadAdminImage);
+  app.route('/admin/upload-image').post(uploadAdminImage).delete(deleteUnsavedNoteImage);
 };
 
 module.exports = { adminUploadRoutes };
