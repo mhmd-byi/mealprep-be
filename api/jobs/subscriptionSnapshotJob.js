@@ -8,11 +8,12 @@ const { countActiveSubscriptionsByPlan } = require('../controllers/subscriptionC
 // subscription status itself has no history (see subscriptionSnapshotModel.js).
 const recordDailySnapshot = async () => {
   try {
-    const { weeklyCount, monthlyCount, trialCount } = await countActiveSubscriptionsByPlan();
+    const { weeklyCount, monthlyCount, trialCount, byPlan } = await countActiveSubscriptionsByPlan();
+    const planCounts = Object.entries(byPlan).map(([plan, count]) => ({ plan, count }));
     const date = todayCalendarDateUTC();
     await SubscriptionSnapshot.findOneAndUpdate(
       { date },
-      { date, weeklyCount, monthlyCount, trialCount },
+      { date, weeklyCount, monthlyCount, trialCount, planCounts },
       { upsert: true }
     );
     console.log(`Recorded subscription snapshot for ${date.toISOString().split('T')[0]}: weekly=${weeklyCount}, monthly=${monthlyCount}, trial=${trialCount}`);

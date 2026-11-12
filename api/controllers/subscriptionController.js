@@ -28,6 +28,7 @@ const { logSubscriptionActivity } = require('../utils/subscriptionActivity');
 const { sendAdminPurchaseAlert } = require('../utils/purchaseAlert');
 const AlacarteOrder = require('../models/alacarteOrderModel');
 const { markPaid: markAlacarteOrderPaid } = require('../utils/alacarteService');
+const { LUNCH_DINNER_VALUES, loadAllPlans, findPlanByName, quotePlan, pricePerMealOfPlan } = require('../utils/planCatalog');
 
 // Admin/staff accounts sometimes carry their own test subscription — never
 // notify those, only real customers.
@@ -200,8 +201,8 @@ const createSubscription = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    const validPlans = ['Trial Meal Pack', 'Trial Meal Plan', 'Weekly Plan', 'Monthly Plan'];
-    if (!validPlans.includes(plan)) {
+    const planDoc = await findPlanByName(plan);
+    if (!planDoc && plan !== 'Trial Meal Plan') {
       return res.status(400).json({ message: 'Invalid plan' });
     }
 
@@ -214,6 +215,7 @@ const createSubscription = async (req, res) => {
       userId,
       subscriptionStartDate,
       plan,
+      pricePerMeal: planDoc ? pricePerMealOfPlan(planDoc) : null,
       lunchMeals: mealAdjustment.lunchMeals,
       dinnerMeals: mealAdjustment.dinnerMeals,
       nextDayLunchMeals: mealAdjustment.nextDayLunchMeals,
@@ -1033,16 +1035,25 @@ const getUserForMealDelivery = async (req, res) => {
 
 const createRazorpayOrder = async (req, res) => {
   try {
-    const { amount, plan, meals, userId, carbType, mealType, lunchDinner, mealStartDate, allergy, spiceLevel, flavourPreferences } = req.body;
+    const { plan: requestedPlan, userId, carbType, mealType, lunchDinner, mealStartDate, allergy, spiceLevel, flavourPreferences } = req.body;
+
+    const plan = await findPlanByName(requestedPlan, { activeOnly: true });
+    if (!plan) {
+      return res.status(400).json({ message: 'That plan is not available.' });
+    }
+    if (!LUNCH_DINNER_VALUES.includes(lunchDinner)) {
+      return res.status(400).json({ message: 'Choose lunch, dinner or both.' });
+    }
+    const { price, meals } = quotePlan(plan, lunchDinner);
     const taste = await cleanTastePreferences({ spiceLevel, flavourPreferences });
 
     const options = {
-      amount: amount * 100,
+      amount: Math.round(price * 100),
       currency: 'INR',
       receipt: `order_${Date.now()}`,
       notes: {
         userId: userId,
-        plan: plan,
+        plan: plan.name,
         meals: meals,
         carbType: carbType,
         mealType: mealType,
@@ -1069,7 +1080,7 @@ const createRazorpayOrder = async (req, res) => {
 
 const verifyPayment = async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, startDate, meals, mealType, carbType, lunchDinner, mealStartDate, allergy, spiceLevel, flavourPreferences, clientType } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, startDate, mealType, carbType, lunchDinner: requestedLunchDinner, mealStartDate, allergy, spiceLevel, flavourPreferences, clientType } = req.body;
 
     console.log('Verifying payment for order:', razorpay_order_id);
 
@@ -1089,6 +1100,22 @@ const verifyPayment = async (req, res) => {
       return res.status(201).json(existingSub);
     }
 
+    let paidOrder;
+    try {
+      paidOrder = await razorpay.orders.fetch(razorpay_order_id);
+    } catch (error) {
+      console.error('Could not fetch the Razorpay order for verification:', error.message || error);
+      return res.status(502).json({ message: 'Could not confirm the payment details. Please try again.' });
+    }
+    const paidNotes = paidOrder.notes || {};
+    const plan = paidNotes.plan;
+    const mealCount = Number(paidNotes.meals);
+    const lunchDinner = paidNotes.lunchDinner || requestedLunchDinner;
+    if (!plan || !Number.isFinite(mealCount) || mealCount <= 0) {
+      return res.status(400).json({ message: 'This payment does not match a plan purchase.' });
+    }
+    const pricePerMeal = paidOrder.amount / 100 / mealCount;
+
     // A purchase only queues if it overlaps an already-active plan's meal-type
     // coverage (e.g. buying dinner while only lunch is active goes active
     // immediately instead of queuing behind an unrelated meal type).
@@ -1097,8 +1124,6 @@ const verifyPayment = async (req, res) => {
 
     const newStatus = overlapsActive ? 'queued' : 'active';
     console.log(`User ${userId} purchase (${lunchDinner}) overlaps active coverage: ${overlapsActive}. Saving new subscription as '${newStatus}'.`);
-
-    const mealCount = Number(meals);
 
     // For queued plans: do NOT adjust meal counts yet — they will be recalculated on activation day.
     // For active plans: apply the normal time-based adjustment.
@@ -1132,6 +1157,7 @@ const verifyPayment = async (req, res) => {
       userId,
       subscriptionStartDate: mealStartDate ? parseCalendarDate(mealStartDate) : new Date(),
       plan,
+      pricePerMeal,
       lunchMeals,
       dinnerMeals,
       nextDayLunchMeals,
@@ -1188,9 +1214,11 @@ const countActiveSubscriptionsByPlan = async () => {
   let weeklyCount = 0;
   let monthlyCount = 0;
   let trialCount = 0;
+  const byPlan = {};
 
   activeSubscriptions.forEach(sub => {
     if (sub.userId && !isExcludedUser(sub.userId) && sub.plan) {
+      byPlan[sub.plan] = (byPlan[sub.plan] || 0) + 1;
       if (/Weekly/i.test(sub.plan)) {
         weeklyCount++;
       } else if (/Monthly/i.test(sub.plan)) {
@@ -1201,12 +1229,12 @@ const countActiveSubscriptionsByPlan = async () => {
     }
   });
 
-  return { weeklyCount, monthlyCount, trialCount };
+  return { weeklyCount, monthlyCount, trialCount, byPlan };
 };
 
 const getActiveSubscriptionCounts = async (req, res) => {
   try {
-    const counts = await countActiveSubscriptionsByPlan();
+    const { byPlan: currentByPlan, ...counts } = await countActiveSubscriptionsByPlan();
 
     // Subscription status has no history, so this can only ever compare
     // against a real recorded snapshot from exactly 7 days ago — never an
@@ -1215,11 +1243,29 @@ const getActiveSubscriptionCounts = async (req, res) => {
     const sevenDaysAgo = addCalendarDays(todayCalendarDateUTC(), -7);
     const previousSnapshot = await SubscriptionSnapshot.findOne({ date: sevenDaysAgo });
 
+    const catalog = await loadAllPlans();
+    const planNames = catalog.filter((plan) => plan.isActive !== false).map((plan) => plan.name);
+    Object.keys(currentByPlan).forEach((name) => {
+      if (!planNames.includes(name)) planNames.push(name);
+    });
+
+    const previousCountFor = (name) => {
+      if (!previousSnapshot) return null;
+      const recorded = (previousSnapshot.planCounts || []).find((entry) => entry.plan === name);
+      if (recorded) return recorded.count;
+      if (previousSnapshot.planCounts && previousSnapshot.planCounts.length > 0) return 0;
+      if (/Weekly/i.test(name)) return previousSnapshot.weeklyCount;
+      if (/Monthly/i.test(name)) return previousSnapshot.monthlyCount;
+      if (/Trial/i.test(name)) return previousSnapshot.trialCount;
+      return null;
+    };
+
     res.json({
       ...counts,
       previousWeeklyCount: previousSnapshot?.weeklyCount ?? null,
       previousMonthlyCount: previousSnapshot?.monthlyCount ?? null,
-      previousTrialCount: previousSnapshot?.trialCount ?? null
+      previousTrialCount: previousSnapshot?.trialCount ?? null,
+      byPlan: planNames.map((name) => ({ plan: name, count: currentByPlan[name] || 0, previousCount: previousCountFor(name) }))
     });
   } catch (error) {
     console.error('Error getting active subscription counts:', error);
@@ -1310,6 +1356,7 @@ const handleRazorpayWebhook = async (req, res) => {
         userId,
         subscriptionStartDate: mealStartDate ? parseCalendarDate(mealStartDate) : undefined,
         plan,
+        pricePerMeal: order.amount / 100 / mealCount,
         lunchMeals,
         dinnerMeals,
         nextDayLunchMeals,

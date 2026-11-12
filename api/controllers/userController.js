@@ -294,7 +294,7 @@ const getAllUsersWithMealCounts = async (req, res) => {
           subscriptions: {
             $elemMatch: {
               status: 'active',
-              plan: { $regex: plan, $options: 'i' }
+              plan: { $regex: String(plan).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' }
             }
           },
           totalActiveMeals: { $gt: 0 }

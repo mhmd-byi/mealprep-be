@@ -8,7 +8,7 @@ const AlacarteOrder = require('../models/alacarteOrderModel');
 const User = require('../models/userModel');
 const { requireAdmin } = require('../utils/requireAdmin');
 const { getExcludedUserIds } = require('../utils/excludedAccounts');
-const { PLAN_PRICING, hasRealPayment, computeNetRevenue } = require('../utils/planPricing');
+const { refreshPricing, pricePerMealFor, hasRealPayment, computeNetRevenue } = require('../utils/planPricing');
 const {
   IST_ZONE,
   todayCalendarDateUTC,
@@ -47,9 +47,7 @@ const MAX_TREND_CATEGORIES = 7;
 // complimentary or refunded plan's deliveries are never counted.
 const pricePerMealOf = (sub) => {
   if (!sub || !hasRealPayment(sub) || sub.refundId) return 0;
-  const pricing = PLAN_PRICING[sub.plan];
-  if (!pricing) return 0;
-  return pricing.price / pricing.meals;
+  return pricePerMealFor(sub);
 };
 
 // Sums each delivery's pricePerMealOf, bucketed by IST calendar day/week/month
@@ -146,6 +144,7 @@ const getFinanceDashboard = async (req, res) => {
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
+    await refreshPricing();
 
     const today = todayCalendarDateUTC();
 
@@ -442,6 +441,7 @@ const getDailySales = async (req, res) => {
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
+    await refreshPricing();
 
     const { startDate, endDate } = req.query;
     if (!startDate || !endDate) {
@@ -590,6 +590,7 @@ const getRecentTransactions = async (req, res) => {
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
+    await refreshPricing();
 
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || TRANSACTION_FEED_LIMIT));
     const excludedUserIds = await getExcludedUserIds();

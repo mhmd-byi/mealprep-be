@@ -14,8 +14,8 @@ const {
 const { cleanTastePreferences } = require('../utils/tastePreferences');
 const { logSubscriptionActivity } = require('../utils/subscriptionActivity');
 const { sendAdminPurchaseAlert } = require('../utils/purchaseAlert');
+const { findPlanByName, pricePerMealOfPlan } = require('../utils/planCatalog');
 
-const VALID_PLANS = ['Trial Meal Pack', 'Weekly Plan', 'Monthly Plan'];
 const VALID_LUNCH_DINNER = ['lunch', 'dinner', 'lunchAndDinner'];
 const VALID_MEAL_TYPES = ['veg', 'non-veg', 'both'];
 const VALID_STATUSES = ['active', 'queued', 'completed', 'cancelled'];
@@ -77,8 +77,9 @@ const createAdminSubscription = async (req, res) => {
         message: 'userId, plan, totalMeals, lunchDinner, mealType, carbType and subscriptionStartDate are required.'
       });
     }
-    if (!VALID_PLANS.includes(plan)) {
-      return res.status(400).json({ message: `plan must be one of: ${VALID_PLANS.join(', ')}` });
+    const planDoc = await findPlanByName(plan);
+    if (!planDoc) {
+      return res.status(400).json({ message: 'Choose one of the existing plans.' });
     }
     if (!VALID_LUNCH_DINNER.includes(lunchDinner)) {
       return res.status(400).json({ message: `lunchDinner must be one of: ${VALID_LUNCH_DINNER.join(', ')}` });
@@ -125,7 +126,8 @@ const createAdminSubscription = async (req, res) => {
 
     const subscription = new Subscription({
       userId,
-      plan,
+      plan: planDoc.name,
+      pricePerMeal: pricePerMealOfPlan(planDoc),
       lunchMeals,
       dinnerMeals,
       nextDayLunchMeals,
@@ -186,8 +188,9 @@ const updateAdminSubscription = async (req, res) => {
       return res.status(404).json({ message: 'Subscription not found' });
     }
 
-    if (fieldUpdates.plan !== undefined && !VALID_PLANS.includes(fieldUpdates.plan)) {
-      return res.status(400).json({ message: `plan must be one of: ${VALID_PLANS.join(', ')}` });
+    const nextPlan = fieldUpdates.plan !== undefined ? await findPlanByName(fieldUpdates.plan) : null;
+    if (fieldUpdates.plan !== undefined && !nextPlan) {
+      return res.status(400).json({ message: 'Choose one of the existing plans.' });
     }
     if (fieldUpdates.mealType !== undefined && !VALID_MEAL_TYPES.includes(fieldUpdates.mealType)) {
       return res.status(400).json({ message: `mealType must be one of: ${VALID_MEAL_TYPES.join(', ')}` });
@@ -212,7 +215,10 @@ const updateAdminSubscription = async (req, res) => {
 
     const before = snapshot(sub);
 
-    if (fieldUpdates.plan !== undefined) sub.plan = fieldUpdates.plan;
+    if (nextPlan && nextPlan.name !== sub.plan) {
+      sub.plan = nextPlan.name;
+      sub.pricePerMeal = pricePerMealOfPlan(nextPlan);
+    }
     if (fieldUpdates.carbType !== undefined) sub.carbType = fieldUpdates.carbType;
     if (fieldUpdates.mealType !== undefined) sub.mealType = fieldUpdates.mealType;
     if (fieldUpdates.allergy !== undefined) sub.allergy = fieldUpdates.allergy;

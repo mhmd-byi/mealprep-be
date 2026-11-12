@@ -6,7 +6,6 @@ const { projectExhaustionDate, loadHolidayKeys } = require('./planProjection');
 const { todayCalendarDateUTC, diffInCalendarDays } = require('./dateUtils');
 
 const STATUSES = ['active', 'queued', 'ended', 'never'];
-const PLANS = ['Trial', 'Weekly', 'Monthly'];
 const DIETS = ['veg', 'non-veg', 'both'];
 const MEAL_SLOTS = ['lunch', 'dinner', 'both'];
 const OPERATORS = ['>', '<', '='];
@@ -35,7 +34,9 @@ const normalizeFilter = (raw) => {
   return {
     userIds: (Array.isArray(input.userIds) ? input.userIds : []).map(String).filter((id) => /^[a-f0-9]{24}$/i.test(id)),
     statuses: onlyKnown(input.statuses, STATUSES),
-    plans: onlyKnown(input.plans, PLANS),
+    plans: (Array.isArray(input.plans) ? input.plans : [])
+      .map((item) => String(item).trim())
+      .filter((item, index, list) => item.length > 0 && item.length <= 60 && list.indexOf(item) === index),
     diets: onlyKnown(input.diets, DIETS),
     mealSlots: onlyKnown(input.mealSlots, MEAL_SLOTS),
     carbTypes: (Array.isArray(input.carbTypes) ? input.carbTypes : []).map(String).filter((item) => /^[a-z-]{2,40}$/.test(item)),
@@ -194,6 +195,5 @@ module.exports = {
   coverageOf,
   loadCustomerSnapshots,
   resolveAudience,
-  STATUSES,
-  PLANS
+  STATUSES
 };

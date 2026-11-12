@@ -54,6 +54,7 @@ const subscriptionSchema = new Schema(
       enum: ['Cash', 'UPI', 'Card', 'Bank Transfer']
     },
     orderId: { type: String },
+    pricePerMeal: { type: Number, default: null },
     refundId: { type: String },
     mealStartDate: { type: String },
     allergy: { type: String, default: "" },

@@ -11,7 +11,8 @@ const subscriptionSnapshotSchema = new Schema(
     date: { type: Date, required: true, unique: true }, // calendar day, UTC midnight
     weeklyCount: { type: Number, required: true },
     monthlyCount: { type: Number, required: true },
-    trialCount: { type: Number, required: true }
+    trialCount: { type: Number, required: true },
+    planCounts: { type: [new Schema({ plan: String, count: Number }, { _id: false })], default: [] }
   },
   { timestamps: true }
 );
