@@ -130,9 +130,18 @@ const customizeMealRequest = async (req, res) => {
         return res.status(400).json({ message: 'mealType is required and must be either "lunch" or "dinner"' });
       }
 
+      const requestedDate0Hour = parseCalendarDate(date);
+      if (!date || Number.isNaN(requestedDate0Hour.getTime())) {
+        return res.status(400).json({ message: 'A valid date is required' });
+      }
+
+      const requestedItems = (Array.isArray(items) ? items : Object.values(items || {})).filter((item) => item && item.name);
+      if (requestedItems.length === 0) {
+        return res.status(400).json({ message: 'Select at least one meal item to customise' });
+      }
+
       const todayIST = todayCalendarDateUTC();
       const currentTimeInMinutes = currentISTMinutesSinceMidnight();
-      const requestedDate0Hour = parseCalendarDate(date);
 
       if (requestedDate0Hour < todayIST) {
         return res.status(400).json({ message: 'Cannot submit a customisation request for a past date' });
@@ -147,10 +156,10 @@ const customizeMealRequest = async (req, res) => {
         }
       }
 
-      const itemsArray = Object.keys(items).map(key => ({
-        name: items[key].name,
-        weight: items[key].weight,
-        exclude: items[key].exclude
+      const itemsArray = requestedItems.map((item) => ({
+        name: item.name,
+        weight: typeof item.weight === 'string' ? item.weight.trim() : '',
+        exclude: Boolean(item.exclude)
       }));
       const customisationRequest = new CustomiseMeal({
         userId,
@@ -164,8 +173,8 @@ const customizeMealRequest = async (req, res) => {
         description: 'Requested for meal cstomisation for date ' + date,
         category: 'customisation'
       });
-      await activityData.save();
       const savedCustomisationMealRequest = await customisationRequest.save();
+      await activityData.save();
 
       (async () => {
         try {
