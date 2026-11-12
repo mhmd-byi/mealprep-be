@@ -55,6 +55,8 @@ const subscriptionSchema = new Schema(
     },
     orderId: { type: String },
     pricePerMeal: { type: Number, default: null },
+    endedAt: { type: Date, default: null },
+    endedAtEstimated: { type: Boolean, default: false },
     refundId: { type: String },
     mealStartDate: { type: String },
     allergy: { type: String, default: "" },

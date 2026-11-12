@@ -215,7 +215,7 @@ async function activateNextQueuedPlan() {
 
     for (const sub of exhausted) {
       // Mark the exhausted plan as completed
-      await Subscription.findByIdAndUpdate(sub._id, { status: 'completed' });
+      await Subscription.findByIdAndUpdate(sub._id, { status: 'completed', endedAt: new Date(), endedAtEstimated: false });
       console.log(`Marked subscription ${sub._id} as 'completed' for user ${sub.userId}`);
 
       // Find the oldest queued plan for this user

@@ -566,12 +566,12 @@ const getDeliveredMeals = async (req, res) => {
 
     const [deliveredMeals, endedSubscriptions] = await Promise.all([
       MealDelivery.find({ date: { $gte: dayStart, $lte: dayEnd } }).exec(),
-      // "Ended that day" mirrors getSubscriptionEndLabel elsewhere: a plan's
-      // end date isn't a stored field, it's inferred as updatedAt once status
-      // flips to completed/cancelled.
       Subscription.find({
         status: { $in: ['completed', 'cancelled'] },
-        updatedAt: { $gte: dayStart, $lte: dayEnd }
+        $or: [
+          { endedAt: { $gte: dayStart, $lte: dayEnd } },
+          { endedAt: null, updatedAt: { $gte: dayStart, $lte: dayEnd } }
+        ]
       }).populate('userId', 'firstName lastName email mobile role').exec()
     ]);
 
@@ -634,7 +634,7 @@ const getDeliveredMeals = async (req, res) => {
         mobile: sub.userId?.mobile || '',
         plan: sub.plan,
         status: sub.status,
-        endedAt: sub.updatedAt
+        endedAt: sub.endedAt || sub.updatedAt
       }));
 
     res.json({
@@ -1436,6 +1436,8 @@ const cancelQueuedPlan = async (req, res) => {
 
     // Soft delete / Update status
     sub.status = 'cancelled';
+    sub.endedAt = new Date();
+    sub.endedAtEstimated = false;
     // Zero out meals so it is treated as exhausted/invalid
     sub.lunchMeals = 0;
     sub.dinnerMeals = 0;

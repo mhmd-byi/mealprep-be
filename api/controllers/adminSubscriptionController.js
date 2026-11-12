@@ -283,7 +283,17 @@ const updateAdminSubscription = async (req, res) => {
 
     if (fieldUpdates.status !== undefined && fieldUpdates.status !== sub.status) {
       const wasActive = sub.status === 'active';
+      const wasEnded = ['cancelled', 'completed'].includes(sub.status);
       sub.status = fieldUpdates.status;
+      if (['cancelled', 'completed'].includes(sub.status)) {
+        if (!wasEnded || !sub.endedAt) {
+          sub.endedAt = new Date();
+          sub.endedAtEstimated = false;
+        }
+      } else {
+        sub.endedAt = null;
+        sub.endedAtEstimated = false;
+      }
 
       // Moving an active plan to cancelled/completed: zero its meals so the
       // next scheduled meal-exhaustion check promotes any queued plan for
@@ -385,6 +395,8 @@ const closeAccount = async (req, res) => {
     for (const sub of openSubs) {
       const before = snapshot(sub);
       sub.status = 'cancelled';
+      sub.endedAt = new Date();
+      sub.endedAtEstimated = false;
       sub.lunchMeals = 0;
       sub.dinnerMeals = 0;
       sub.nextDayLunchMeals = 0;
