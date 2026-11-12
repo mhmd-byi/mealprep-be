@@ -37,6 +37,7 @@ const notificationRoutes = require('./api/routes/notificationRoutes');
 const alacarteRoutes = require('./api/routes/alacarteRoutes');
 const planRoutes = require('./api/routes/planRoutes');
 const carbTypeRoutes = require('./api/routes/carbTypeRoutes');
+const contactMessageRoutes = require('./api/routes/contactMessageRoutes');
 
 const corsOptions = {
   origin: '*', // Adjust this to match the domain you want to allow
@@ -105,6 +106,7 @@ notificationRoutes.notificationRoutes(app);
 alacarteRoutes.alacarteRoutes(app);
 planRoutes.planRoutes(app);
 carbTypeRoutes.carbTypeRoutes(app);
+contactMessageRoutes.contactMessageRoutes(app);
 
 app.listen(port, () => {
   console.log('Node.js + MongoDB RESTful API server started on: ' + port);

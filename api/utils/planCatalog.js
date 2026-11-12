@@ -101,7 +101,8 @@ const pricePerMealOfPlan = (plan) => plan.price / plan.meals;
 const backfillPricePerMeal = (planName, price, meals) =>
   Subscription.updateMany(
     { plan: planName, $or: [{ pricePerMeal: { $exists: false } }, { pricePerMeal: null }] },
-    { $set: { pricePerMeal: price / meals } }
+    { $set: { pricePerMeal: price / meals } },
+    { timestamps: false }
   );
 
 module.exports = {

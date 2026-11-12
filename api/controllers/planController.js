@@ -160,7 +160,7 @@ const updatePlan = async (req, res) => {
     await plan.save();
 
     if (next.name !== oldName) {
-      await Subscription.updateMany({ plan: oldName }, { $set: { plan: next.name } });
+      await Subscription.updateMany({ plan: oldName }, { $set: { plan: next.name } }, { timestamps: false });
     }
 
     res.json(shapePlan(plan.toObject()));
