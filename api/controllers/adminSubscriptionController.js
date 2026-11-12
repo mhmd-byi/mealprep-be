@@ -15,6 +15,7 @@ const { cleanTastePreferences } = require('../utils/tastePreferences');
 const { logSubscriptionActivity } = require('../utils/subscriptionActivity');
 const { sendAdminPurchaseAlert } = require('../utils/purchaseAlert');
 const { findPlanByName, pricePerMealOfPlan } = require('../utils/planCatalog');
+const { findCarbType } = require('../utils/carbTypeCatalog');
 
 const VALID_LUNCH_DINNER = ['lunch', 'dinner', 'lunchAndDinner'];
 const VALID_MEAL_TYPES = ['veg', 'non-veg', 'both'];
@@ -81,6 +82,10 @@ const createAdminSubscription = async (req, res) => {
     if (!planDoc) {
       return res.status(400).json({ message: 'Choose one of the existing plans.' });
     }
+    const carbTypeDoc = await findCarbType(carbType);
+    if (!carbTypeDoc) {
+      return res.status(400).json({ message: 'Choose one of the existing carb types.' });
+    }
     if (!VALID_LUNCH_DINNER.includes(lunchDinner)) {
       return res.status(400).json({ message: `lunchDinner must be one of: ${VALID_LUNCH_DINNER.join(', ')}` });
     }
@@ -134,7 +139,7 @@ const createAdminSubscription = async (req, res) => {
       nextDayDinnerMeals,
       totalMeals: mealCount,
       mealType,
-      carbType,
+      carbType: carbTypeDoc.slug,
       subscriptionStartDate: parseCalendarDate(subscriptionStartDate),
       mealStartDate: mealStartDate || subscriptionStartDate,
       allergy: allergy || '',
@@ -191,6 +196,9 @@ const updateAdminSubscription = async (req, res) => {
     const nextPlan = fieldUpdates.plan !== undefined ? await findPlanByName(fieldUpdates.plan) : null;
     if (fieldUpdates.plan !== undefined && !nextPlan) {
       return res.status(400).json({ message: 'Choose one of the existing plans.' });
+    }
+    if (fieldUpdates.carbType !== undefined && fieldUpdates.carbType !== sub.carbType && !(await findCarbType(fieldUpdates.carbType))) {
+      return res.status(400).json({ message: 'Choose one of the existing carb types.' });
     }
     if (fieldUpdates.mealType !== undefined && !VALID_MEAL_TYPES.includes(fieldUpdates.mealType)) {
       return res.status(400).json({ message: `mealType must be one of: ${VALID_MEAL_TYPES.join(', ')}` });

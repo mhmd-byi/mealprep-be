@@ -39,7 +39,7 @@ const normalizeFilter = (raw) => {
       .filter((item, index, list) => item.length > 0 && item.length <= 60 && list.indexOf(item) === index),
     diets: onlyKnown(input.diets, DIETS),
     mealSlots: onlyKnown(input.mealSlots, MEAL_SLOTS),
-    carbTypes: (Array.isArray(input.carbTypes) ? input.carbTypes : []).map(String).filter((item) => /^[a-z-]{2,40}$/.test(item)),
+    carbTypes: (Array.isArray(input.carbTypes) ? input.carbTypes : []).map(String).filter((item) => /^[a-z0-9-]{2,40}$/.test(item)),
     pincodes: (Array.isArray(input.pincodes) ? input.pincodes : []).map(String).filter((item) => /^\d{6}$/.test(item)),
     mealsLeft,
     endingWithinDays: nonNegativeInt(input.endingWithinDays),

@@ -29,6 +29,7 @@ const { sendAdminPurchaseAlert } = require('../utils/purchaseAlert');
 const AlacarteOrder = require('../models/alacarteOrderModel');
 const { markPaid: markAlacarteOrderPaid } = require('../utils/alacarteService');
 const { LUNCH_DINNER_VALUES, loadAllPlans, findPlanByName, quotePlan, pricePerMealOfPlan } = require('../utils/planCatalog');
+const { findCarbType } = require('../utils/carbTypeCatalog');
 
 // Admin/staff accounts sometimes carry their own test subscription — never
 // notify those, only real customers.
@@ -1044,6 +1045,10 @@ const createRazorpayOrder = async (req, res) => {
     if (!LUNCH_DINNER_VALUES.includes(lunchDinner)) {
       return res.status(400).json({ message: 'Choose lunch, dinner or both.' });
     }
+    const carbTypeDoc = await findCarbType(carbType, { activeOnly: true });
+    if (!carbTypeDoc) {
+      return res.status(400).json({ message: 'Choose one of the available carb types.' });
+    }
     const { price, meals } = quotePlan(plan, lunchDinner);
     const taste = await cleanTastePreferences({ spiceLevel, flavourPreferences });
 
@@ -1055,7 +1060,7 @@ const createRazorpayOrder = async (req, res) => {
         userId: userId,
         plan: plan.name,
         meals: meals,
-        carbType: carbType,
+        carbType: carbTypeDoc.slug,
         mealType: mealType,
         lunchDinner: lunchDinner,
         mealStartDate,
