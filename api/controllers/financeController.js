@@ -606,11 +606,15 @@ const getRecentTransactions = async (req, res) => {
     ]);
 
     const orderIds = payments.items.map((p) => p.order_id).filter(Boolean);
-    const subscriptions = await Subscription.find({ orderId: { $in: orderIds } });
+    const [subscriptions, alacarteOrders] = await Promise.all([
+      Subscription.find({ orderId: { $in: orderIds } }),
+      AlacarteOrder.find({ razorpayOrderId: { $in: orderIds } }, 'razorpayOrderId userId customerName').lean()
+    ]);
     const subscriptionByOrderId = new Map(subscriptions.map((sub) => [sub.orderId, sub]));
+    const alacarteByOrderId = new Map(alacarteOrders.map((order) => [order.razorpayOrderId, order]));
 
     const customers = await User.find(
-      { _id: { $in: [...subscriptions, ...cashSubs].map((sub) => sub.userId) } },
+      { _id: { $in: [...subscriptions, ...cashSubs, ...alacarteOrders].map((owner) => owner.userId) } },
       'firstName lastName'
     ).lean();
     const customerNameById = new Map(
@@ -620,14 +624,21 @@ const getRecentTransactions = async (req, res) => {
     const excludedIdSet = new Set(excludedUserIds.map(String));
 
     const revenueRows = payments.items
-      .map((payment) => ({ payment, sub: subscriptionByOrderId.get(payment.order_id) }))
-      .filter(({ sub }) => !sub || !excludedIdSet.has(String(sub.userId)))
-      .map(({ payment, sub }) => ({
+      .map((payment) => ({
+        payment,
+        sub: subscriptionByOrderId.get(payment.order_id),
+        order: alacarteByOrderId.get(payment.order_id)
+      }))
+      .filter(({ sub, order }) => {
+        const owner = sub || order;
+        return !owner || !excludedIdSet.has(String(owner.userId));
+      })
+      .map(({ payment, sub, order }) => ({
         id: `payment-${payment.id}`,
         date: new Date(payment.created_at * 1000),
         type: 'Revenue',
-        description: sub ? `${sub.plan} Payment` : 'Subscription Payment',
-        customerName: customerNameFor(sub),
+        description: sub ? `${sub.plan} Payment` : order ? 'À la carte Payment' : 'Subscription Payment',
+        customerName: sub ? customerNameFor(sub) : order ? order.customerName || customerNameFor(order) : null,
         amount: payment.amount / 100,
         status: PAYMENT_STATUS_LABELS[payment.status] || payment.status,
         method: 'Online'
