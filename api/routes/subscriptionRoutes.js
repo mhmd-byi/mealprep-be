@@ -16,6 +16,7 @@ const {
   cancelQueuedPlan,
   getUserCancellations
 } = require('../controllers/subscriptionController');
+const { getSubscriptionHistory, downloadInvoice } = require('../controllers/billingController');
 
 const subscriptionRoutes = function(app) {
   app.route('/subscription/cancel-request').post(cancelMealRequest);
@@ -38,6 +39,9 @@ const subscriptionRoutes = function(app) {
   app.route('/subscription/queued/:subscriptionId/cancel').delete(cancelQueuedPlan);
   // User: fetch own upcoming cancellations (for Next Delivery calculation)
   app.route('/subscription/:userId/my-cancellations').get(getUserCancellations);
+  // User: own subscription history, and the PDF invoice for one subscription
+  app.route('/subscription/:userId/history').get(getSubscriptionHistory);
+  app.route('/subscription/:subscriptionId/invoice').get(downloadInvoice);
 };
 
 module.exports = {

@@ -42,6 +42,7 @@
     "mongoose": "^5.13.22",
     "node-cron": "^3.0.3",
     "nodemailer": "^6.10.0",
+    "pdfkit": "^0.20.2",
     "razorpay": "^2.9.5",
     "sanitize-html": "^2.18.1"
   }
