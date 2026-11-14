@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { DateTime } = require('luxon');
 const { IST_ZONE } = require('./dateUtils');
 
@@ -6,7 +7,14 @@ const SLOT_LABELS = {
   midday: '12:00 PM – 4:00 PM',
   evening: '4:00 PM – 7:00 PM'
 };
-const SLOT_KEYS = Object.keys(SLOT_LABELS);
+const DEFAULT_SLOT_TIMES = [
+  { key: 'morning', startTime: '08:00', endTime: '12:00' },
+  { key: 'midday', startTime: '12:00', endTime: '16:00' },
+  { key: 'evening', startTime: '16:00', endTime: '19:00' }
+];
+const MAX_SLOTS = 10;
+const MAX_SLOT_FEE = 5000;
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const MAX_QUANTITY = 20;
 const MAX_LINES = 20;
@@ -24,10 +32,62 @@ const FORWARD_STATUSES = {
 
 const roundMoney = (value) => Math.round(value * 100) / 100;
 
-const slotsWithFees = (middayFee) =>
-  SLOT_KEYS.map((key) => ({ key, label: SLOT_LABELS[key], fee: key === 'midday' ? roundMoney(middayFee || 0) : 0 }));
+const formatSlotTime = (time) => {
+  const [hours, minutes] = time.split(':').map(Number);
+  return `${hours % 12 || 12}:${String(minutes).padStart(2, '0')} ${hours >= 12 ? 'PM' : 'AM'}`;
+};
 
-const feeForSlot = (slot, middayFee) => (slot === 'midday' ? roundMoney(middayFee || 0) : 0);
+const slotLabel = (slot) => `${formatSlotTime(slot.startTime)} – ${formatSlotTime(slot.endTime)}`;
+
+const defaultSlots = (middayFee) =>
+  DEFAULT_SLOT_TIMES.map((slot) => ({ ...slot, fee: slot.key === 'midday' ? roundMoney(middayFee || 0) : 0 }));
+
+const labelledSlots = (slots) =>
+  slots.map((slot) => ({
+    key: slot.key,
+    startTime: slot.startTime,
+    endTime: slot.endTime,
+    fee: roundMoney(slot.fee || 0),
+    label: slotLabel(slot)
+  }));
+
+const publicSlots = (slots) => slots.map(({ key, label, fee }) => ({ key, label, fee }));
+
+const orderSlotLabel = (order) => order.deliverySlotLabel || SLOT_LABELS[order.deliverySlot] || order.deliverySlot || '';
+
+const generateSlotKey = () => `slot_${crypto.randomBytes(4).toString('hex')}`;
+
+const validateSlots = (input) => {
+  if (!Array.isArray(input) || input.length === 0) return { error: 'Keep at least one delivery slot.' };
+  if (input.length > MAX_SLOTS) return { error: `You can have at most ${MAX_SLOTS} delivery slots.` };
+
+  const slots = [];
+  const keys = new Set();
+  const times = new Set();
+  for (const entry of input) {
+    const startTime = String((entry && entry.startTime) || '');
+    const endTime = String((entry && entry.endTime) || '');
+    if (!TIME_PATTERN.test(startTime) || !TIME_PATTERN.test(endTime)) return { error: 'Every slot needs a start and an end time.' };
+    if (endTime <= startTime) return { error: 'A slot must end after it starts.' };
+
+    const fee = Number(entry.fee);
+    if (!Number.isFinite(fee) || fee < 0 || fee > MAX_SLOT_FEE) return { error: `Enter a fee between 0 and ${MAX_SLOT_FEE} for every slot.` };
+
+    const timeKey = `${startTime}-${endTime}`;
+    if (times.has(timeKey)) return { error: 'Two slots have the same time.' };
+    times.add(timeKey);
+
+    let key = typeof entry.key === 'string' && /^[a-z0-9_]{1,30}$/.test(entry.key) ? entry.key : '';
+    if (key && keys.has(key)) return { error: 'Reload the page and try again.' };
+    while (!key || keys.has(key)) key = generateSlotKey();
+    keys.add(key);
+
+    slots.push({ key, startTime, endTime, fee: roundMoney(fee) });
+  }
+
+  slots.sort((a, b) => a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime));
+  return { slots };
+};
 
 const weekdayOf = (dateKey) => DateTime.fromISO(dateKey, { zone: 'utc' }).weekday % 7;
 
@@ -128,8 +188,9 @@ const generateOrderNumber = (now = DateTime.now().setZone(IST_ZONE), random = Ma
 const nextStatusAllowed = (from, to) => Boolean(FORWARD_STATUSES[from] && FORWARD_STATUSES[from].includes(to));
 
 module.exports = {
-  SLOT_KEYS,
   SLOT_LABELS,
+  MAX_SLOTS,
+  MAX_SLOT_FEE,
   MAX_QUANTITY,
   MAX_LINES,
   MAX_IMAGES,
@@ -137,8 +198,12 @@ module.exports = {
   DEFAULT_DAYS,
   PENDING_PAYMENT_MINUTES,
   roundMoney,
-  slotsWithFees,
-  feeForSlot,
+  slotLabel,
+  defaultSlots,
+  labelledSlots,
+  publicSlots,
+  orderSlotLabel,
+  validateSlots,
   weekdayOf,
   cutoffMoment,
   unavailableReason,

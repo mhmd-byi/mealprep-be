@@ -10,12 +10,12 @@ const { deliverItems } = require('./notificationSender');
 const { loadHolidayKeys } = require('./planProjection');
 const { IST_ZONE, parseCalendarDate } = require('./dateUtils');
 const {
-  SLOT_KEYS,
-  SLOT_LABELS,
   DELIVERY_DAYS_AHEAD,
   PENDING_PAYMENT_MINUTES,
   roundMoney,
-  feeForSlot,
+  defaultSlots,
+  labelledSlots,
+  orderSlotLabel,
   unavailableReason,
   deliveryDateOptions,
   priceLines,
@@ -36,7 +36,8 @@ const fail = (status, message) => ({ error: { status, message } });
 
 const getSettings = async () => {
   const stored = await AlacarteSetting.findOne({ key: 'main' }).lean();
-  return { middayFee: stored ? stored.middayFee || 0 : 0 };
+  const slots = stored && Array.isArray(stored.slots) && stored.slots.length > 0 ? stored.slots : defaultSlots(stored ? stored.middayFee : 0);
+  return { slots: labelledSlots(slots) };
 };
 
 const reserveStock = async (items) => {
@@ -76,7 +77,9 @@ const releaseStock = async (order) => {
 const createOrder = async ({ user, items, deliveryDate, slot, address, note }) => {
   const dateKey = String(deliveryDate || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return fail(400, 'Choose a delivery date.');
-  if (!SLOT_KEYS.includes(slot)) return fail(400, 'Choose a delivery time.');
+  const settings = await getSettings();
+  const slotChoice = settings.slots.find((item) => item.key === slot);
+  if (!slotChoice) return fail(400, 'Choose a delivery time.');
 
   const cleanAddress = String(address || user.postalAddress || '').trim();
   if (!cleanAddress) return fail(400, 'Add a delivery address.');
@@ -98,8 +101,7 @@ const createOrder = async ({ user, items, deliveryDate, slot, address, note }) =
     return fail(400, blocker ? `${blocker.product.name} cannot be delivered on that date because ${blocker.reason}.` : 'Choose a delivery date within the next two weeks.');
   }
 
-  const settings = await getSettings();
-  const deliveryFee = feeForSlot(slot, settings.middayFee);
+  const deliveryFee = slotChoice.fee;
   const total = roundMoney(priced.subtotal + deliveryFee);
 
   const reservation = await reserveStock(priced.lines);
@@ -120,7 +122,8 @@ const createOrder = async ({ user, items, deliveryDate, slot, address, note }) =
         deliveryFee,
         total,
         deliveryDate: parseCalendarDate(dateKey),
-        deliverySlot: slot,
+        deliverySlot: slotChoice.key,
+        deliverySlotLabel: slotChoice.label,
         status: 'pending_payment',
         stockReserved: Boolean(reservation.reservedAny),
         statusHistory: [{ status: 'pending_payment', byName: 'Customer' }]
@@ -160,11 +163,11 @@ const shortDate = (date) => DateTime.fromJSDate(date, { zone: 'utc' }).toFormat(
 const NOTIFICATION_TEXT = {
   placed: (order) => ({
     title: 'Order placed',
-    body: `Thank you! Order ${order.orderNumber} is placed for ${shortDate(order.deliveryDate)}, ${SLOT_LABELS[order.deliverySlot]}.`
+    body: `Thank you! Order ${order.orderNumber} is placed for ${shortDate(order.deliveryDate)}, ${orderSlotLabel(order)}.`
   }),
   confirmed: (order) => ({
     title: 'Order confirmed',
-    body: `Order ${order.orderNumber} is confirmed for ${shortDate(order.deliveryDate)}, ${SLOT_LABELS[order.deliverySlot]}.`
+    body: `Order ${order.orderNumber} is confirmed for ${shortDate(order.deliveryDate)}, ${orderSlotLabel(order)}.`
   }),
   out_for_delivery: (order) => ({
     title: 'Out for delivery',
@@ -227,7 +230,7 @@ const sendAdminOrderAlert = async (order) => {
       text:
         `A new à la carte order has been paid.\n\n` +
         `Order: ${order.orderNumber}\nCustomer: ${order.customerName}\nMobile: ${order.mobile}\n` +
-        `Deliver on: ${shortDate(order.deliveryDate)}, ${SLOT_LABELS[order.deliverySlot]}\nAddress: ${order.address}\n` +
+        `Deliver on: ${shortDate(order.deliveryDate)}, ${orderSlotLabel(order)}\nAddress: ${order.address}\n` +
         (order.note ? `Note: ${order.note}\n` : '') +
         `\n--- ITEMS ---\n${lines}\n\nSubtotal: ₹${order.subtotal}\nDelivery fee: ₹${order.deliveryFee}\nTotal paid: ₹${order.total}\n` +
         `Payment ID: ${order.paymentId}\n` +

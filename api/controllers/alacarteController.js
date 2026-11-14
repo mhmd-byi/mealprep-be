@@ -10,10 +10,11 @@ const { loadHolidayKeys } = require('../utils/planProjection');
 const { IST_ZONE, parseCalendarDate, calendarDateKey } = require('../utils/dateUtils');
 const { createOrder, markPaid, reconcilePayment, changeStatus, getSettings } = require('../utils/alacarteService');
 const {
-  SLOT_LABELS,
   DELIVERY_DAYS_AHEAD,
   roundMoney,
-  slotsWithFees,
+  orderSlotLabel,
+  publicSlots,
+  validateSlots,
   deliveryDateOptions,
   priceLines,
   nextStatusAllowed
@@ -45,7 +46,7 @@ const shapeOrder = (order) => ({
   total: order.total,
   deliveryDate: calendarDateKey(order.deliveryDate),
   deliverySlot: order.deliverySlot,
-  slotLabel: SLOT_LABELS[order.deliverySlot],
+  slotLabel: orderSlotLabel(order),
   status: order.status,
   needsAttention: Boolean(order.needsAttention),
   razorpayOrderId: order.razorpayOrderId || '',
@@ -61,7 +62,7 @@ const getConfig = async (req, res) => {
     if (!user) return;
     const settings = await getSettings();
     res.json({
-      slots: slotsWithFees(settings.middayFee),
+      slots: publicSlots(settings.slots),
       address: user.postalAddress || '',
       mobile: user.mobile || ''
     });
@@ -96,7 +97,7 @@ const quoteCart = async (req, res) => {
       lines: priced.lines,
       subtotal: priced.subtotal,
       dates,
-      slots: slotsWithFees(settings.middayFee)
+      slots: publicSlots(settings.slots)
     });
   } catch (error) {
     serverError(res, 'pricing the cart', error);
@@ -274,11 +275,9 @@ const updateAdminSettings = async (req, res) => {
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
-    const middayFee = Number(req.body.middayFee);
-    if (!Number.isFinite(middayFee) || middayFee < 0 || middayFee > 5000) {
-      return res.status(400).json({ message: 'Enter a delivery fee between 0 and 5000.' });
-    }
-    await AlacarteSetting.findOneAndUpdate({ key: 'main' }, { $set: { middayFee: roundMoney(middayFee) } }, { upsert: true });
+    const checked = validateSlots(req.body.slots);
+    if (checked.error) return res.status(400).json({ message: checked.error });
+    await AlacarteSetting.findOneAndUpdate({ key: 'main' }, { $set: { slots: checked.slots } }, { upsert: true });
     res.json(await getSettings());
   } catch (error) {
     serverError(res, 'saving the à la carte settings', error);
