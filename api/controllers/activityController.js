@@ -6,6 +6,7 @@ const confirmMobileOtp = require('../models/confirmMobileOtp');
 const { getUserByMobileNumber } = require('./userController');
 const { requireAdmin } = require('../utils/requireAdmin');
 const { isExcludedUser } = require('../utils/excludedAccounts');
+const { loadAlacarteActivity } = require('../utils/alacarteActivity');
 require('dotenv').config();
 
 const createActivity = async (req, res) => {
@@ -69,15 +70,16 @@ const getRecentActivities = async (req, res) => {
     const limit = Math.min(500, Number(req.query.limit) || 200);
     const since = new Date(Date.now() - hours * 60 * 60 * 1000);
 
-    const [otherActivities, mealLogs] = await Promise.all([
+    const [otherActivities, mealLogs, alacarteEvents] = await Promise.all([
       Activity.find({ createdAt: { $gte: since }, category: { $ne: 'meal_count' } })
         .sort({ createdAt: -1 })
         .limit(limit),
       Activity.find({ createdAt: { $gte: since }, category: 'meal_count' })
         .sort({ createdAt: -1 })
-        .limit(limit)
+        .limit(limit),
+      loadAlacarteActivity(since, limit)
     ]);
-    const activities = [...otherActivities, ...mealLogs].sort((a, b) => b.createdAt - a.createdAt);
+    const activities = [...otherActivities, ...mealLogs, ...alacarteEvents].sort((a, b) => b.createdAt - a.createdAt);
 
     const userIds = [...new Set(activities.map((a) => String(a.userId)))];
     const users = await User.find({ _id: { $in: userIds } }, 'firstName lastName email mobile role');
@@ -99,8 +101,9 @@ const getRecentActivities = async (req, res) => {
           description: a.description,
           createdAt: a.createdAt,
           userId: a.userId,
-          name: user ? `${user.firstName} ${user.lastName}` : 'Unknown',
-          mobile: user?.mobile || ''
+          name: a.displayName || (user ? `${user.firstName} ${user.lastName}` : 'Unknown'),
+          mobile: a.displayMobile || user?.mobile || '',
+          ...(a.category === 'alacarte' ? { status: a.status, needsAttention: a.needsAttention } : {})
         };
       });
 
