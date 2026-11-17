@@ -1,6 +1,10 @@
 const { createActivity, getActivityFromUserId, getRecentActivities, sendEmailMailTrap, sendMessageAiSensy, verifyOtp } = require("../controllers/activityController");
 
+const { getTrackingSummary } = require("../controllers/mealTrackingController");
+
 const activityRoutes = function (app) {
+  app.route('/activity/:userId/summary').get(getTrackingSummary);
+
   app.route('/activity/add-activity').post(createActivity);
 
   app.route('/activity/get-activities').get(getActivityFromUserId);
