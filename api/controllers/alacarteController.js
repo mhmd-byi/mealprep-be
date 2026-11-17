@@ -6,8 +6,10 @@ const AlacarteOrder = require('../models/alacarteOrderModel');
 const AlacarteSetting = require('../models/alacarteSettingModel');
 const { requireAuth } = require('../utils/requireAuth');
 const { requireAdmin } = require('../utils/requireAdmin');
+const { getExcludedUserIds } = require('../utils/excludedAccounts');
 const { loadHolidayKeys } = require('../utils/planProjection');
 const { IST_ZONE, parseCalendarDate, calendarDateKey } = require('../utils/dateUtils');
+const { PAID_STATUSES, resolveRange, buildDailySales } = require('../utils/alacarteSales');
 const { createOrder, markPaid, reconcilePayment, changeStatus, getSettings } = require('../utils/alacarteService');
 const {
   DELIVERY_DAYS_AHEAD,
@@ -209,6 +211,26 @@ const listAdminOrders = async (req, res) => {
   }
 };
 
+const getAdminSales = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const range = resolveRange(req.query.startDate, req.query.endDate);
+    if (range.error) return res.status(400).json({ message: range.error });
+
+    const excludedUserIds = await getExcludedUserIds();
+    const orders = await AlacarteOrder.find(
+      { status: { $in: PAID_STATUSES }, paidAt: { $gte: range.from, $lte: range.to }, userId: { $nin: excludedUserIds } },
+      'paidAt subtotal deliveryFee total items.quantity'
+    ).lean();
+
+    res.json({ startDate: range.startKey, endDate: range.endKey, ...buildDailySales(orders, range.startKey, range.endKey) });
+  } catch (error) {
+    serverError(res, 'building à la carte sales', error);
+  }
+};
+
 const updateOrderStatus = async (req, res) => {
   try {
     const admin = await requireAdmin(req, res);
@@ -291,6 +313,7 @@ module.exports = {
   verifyOrderPayment,
   myOrders,
   listAdminOrders,
+  getAdminSales,
   updateOrderStatus,
   checkOrderPayment,
   clearAttention,

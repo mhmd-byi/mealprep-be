@@ -17,6 +17,7 @@ const alacarteRoutes = function (app) {
   app.route('/admin/product-categories/:categoryId').put(products.updateProductCategory).delete(products.deleteProductCategory);
 
   app.route('/admin/alacarte/orders').get(alacarte.listAdminOrders);
+  app.route('/admin/alacarte/sales').get(alacarte.getAdminSales);
   app.route('/admin/alacarte/orders/:orderId/status').patch(alacarte.updateOrderStatus);
   app.route('/admin/alacarte/orders/:orderId/check-payment').post(alacarte.checkOrderPayment);
   app.route('/admin/alacarte/orders/:orderId/attention').delete(alacarte.clearAttention);
