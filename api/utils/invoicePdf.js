@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const PDFDocument = require('pdfkit');
 const { DateTime } = require('luxon');
 const { IST_ZONE } = require('./dateUtils');
@@ -6,6 +8,20 @@ const BRAND = '#3C9B62';
 const INK = '#1f2937';
 const MUTED = '#6b7280';
 const LINE = '#e5e7eb';
+
+const LOGO_WIDTH = 130;
+const DEFAULT_NAME = 'mealprep';
+
+const loadLogo = () => {
+  try {
+    return fs.readFileSync(path.join(__dirname, '..', 'assets', 'mealprep-logo.png'));
+  } catch (error) {
+    console.error('Invoice logo could not be loaded:', error.message);
+    return null;
+  }
+};
+
+const LOGO = loadLogo();
 
 const DIET_LABELS = { veg: 'Veg', 'non-veg': 'Non-veg', both: 'Veg and non-veg' };
 
@@ -41,12 +57,23 @@ const buildInvoicePdf = ({ subscription, customer, amount, carbLabel }) =>
     const right = doc.page.width - doc.page.margins.right;
     const width = right - left;
 
-    doc.fillColor(BRAND).font('Helvetica-Bold').fontSize(24).text(seller.name, left, 50, { width: width / 2 });
-    doc.fillColor(INK).font('Helvetica-Bold').fontSize(20).text('INVOICE', left, 54, { width, align: 'right' });
+    let y;
+    if (LOGO) {
+      doc.image(LOGO, left, 40, { width: LOGO_WIDTH });
+      doc.fillColor(INK).font('Helvetica-Bold').fontSize(20).text('INVOICE', left, 58, { width, align: 'right' });
+      y = 106;
+      if (seller.name.toLowerCase() !== DEFAULT_NAME) {
+        doc.fillColor(INK).font('Helvetica-Bold').fontSize(10).text(seller.name, left, y, { width: width / 2 });
+        y = doc.y + 2;
+      }
+    } else {
+      doc.fillColor(BRAND).font('Helvetica-Bold').fontSize(24).text(seller.name, left, 50, { width: width / 2 });
+      doc.fillColor(INK).font('Helvetica-Bold').fontSize(20).text('INVOICE', left, 54, { width, align: 'right' });
+      y = 82;
+    }
 
     const sellerLines = [seller.address, seller.email, seller.phone && `Phone: ${seller.phone}`, seller.gstin && `GSTIN: ${seller.gstin}`].filter(Boolean);
     doc.fillColor(MUTED).font('Helvetica').fontSize(9);
-    let y = 82;
     sellerLines.forEach((line) => {
       doc.text(line, left, y, { width: width / 2 });
       y = doc.y + 1;
