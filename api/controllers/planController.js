@@ -3,6 +3,7 @@ const Plan = require('../models/planModel');
 const Subscription = require('../models/subscriptionModel');
 const { requireAdmin } = require('../utils/requireAdmin');
 const { DEFAULT_PLANS, shapePlan, loadAllPlans, backfillPricePerMeal } = require('../utils/planCatalog');
+const { logCreated, logDeleted, logUpdated, logActiveChange, logSetup } = require('../utils/catalogLog');
 
 const COLLATION = { locale: 'en', strength: 2 };
 const MAX_FEATURES = 8;
@@ -98,10 +99,11 @@ const setupDefaultPlans = async (req, res) => {
     if ((await Plan.estimatedDocumentCount()) > 0) {
       return res.status(409).json({ message: 'Plans are already set up.' });
     }
-    await Plan.insertMany(DEFAULT_PLANS);
+    const created = await Plan.insertMany(DEFAULT_PLANS);
     for (const plan of DEFAULT_PLANS) {
       await backfillPricePerMeal(plan.name, plan.price, plan.meals);
     }
+    await logSetup(admin, 'plan', created, 'Default plans');
     res.status(201).json(await buildAdminList());
   } catch (error) {
     serverError(res, 'setting up the default plans', error);
@@ -120,13 +122,15 @@ const createPlan = async (req, res) => {
       return res.status(400).json({ message: 'A plan with this name already exists.' });
     }
     if ((await Plan.estimatedDocumentCount()) === 0) {
-      await Plan.insertMany(DEFAULT_PLANS);
+      const created = await Plan.insertMany(DEFAULT_PLANS);
       for (const plan of DEFAULT_PLANS) {
         await backfillPricePerMeal(plan.name, plan.price, plan.meals);
       }
+      await logSetup(admin, 'plan', created, 'Default plans');
     }
 
     const plan = await Plan.create(checked.value);
+    await logCreated(admin, 'plan', plan);
     res.status(201).json(shapePlan(plan.toObject()));
   } catch (error) {
     serverError(res, 'creating a plan', error);
@@ -152,12 +156,14 @@ const updatePlan = async (req, res) => {
     }
 
     const oldName = plan.name;
+    const before = plan.toObject();
     if (next.price !== plan.price || next.meals !== plan.meals) {
       await backfillPricePerMeal(oldName, plan.price, plan.meals);
     }
 
     Object.assign(plan, next);
     await plan.save();
+    await logUpdated(admin, 'plan', before, plan);
 
     if (next.name !== oldName) {
       await Subscription.updateMany({ plan: oldName }, { $set: { plan: next.name } }, { timestamps: false });
@@ -176,8 +182,11 @@ const setPlanActive = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.planId)) return res.status(404).json({ message: 'Plan not found.' });
     if (typeof req.body.isActive !== 'boolean') return res.status(400).json({ message: 'isActive must be true or false.' });
 
+    const before = await Plan.findById(req.params.planId).lean();
+    if (!before) return res.status(404).json({ message: 'Plan not found.' });
     const plan = await Plan.findByIdAndUpdate(req.params.planId, { $set: { isActive: req.body.isActive } }, { new: true }).lean();
     if (!plan) return res.status(404).json({ message: 'Plan not found.' });
+    await logActiveChange(admin, 'plan', before, plan);
     res.json(shapePlan(plan));
   } catch (error) {
     serverError(res, 'changing a plan', error);
@@ -197,6 +206,7 @@ const deletePlan = async (req, res) => {
     }
 
     await plan.deleteOne();
+    await logDeleted(admin, 'plan', plan);
     res.json({ message: 'Plan deleted.' });
   } catch (error) {
     serverError(res, 'deleting a plan', error);

@@ -4,6 +4,7 @@ const ProductCategory = require('../models/productCategoryModel');
 const { requireAdmin } = require('../utils/requireAdmin');
 const { deleteImageByUrl } = require('../utils/s3Storage');
 const { MAX_IMAGES, DEFAULT_DAYS } = require('../utils/alacarteRules');
+const { logCreated, logDeleted, logUpdated, logActiveChange } = require('../utils/catalogLog');
 
 const authorOf = (admin) => ({
   userId: admin._id,
@@ -146,6 +147,7 @@ const createProduct = async (req, res) => {
     if (checked.error) return res.status(400).json({ message: checked.error });
     const author = authorOf(admin);
     const product = await Product.create({ ...checked.value, createdBy: author, updatedBy: author });
+    await logCreated(admin, 'product', product);
     res.status(201).json(product);
   } catch (error) {
     serverError(res, 'creating a product', error);
@@ -163,11 +165,13 @@ const updateProduct = async (req, res) => {
     const checked = await validateProductInput(req.body);
     if (checked.error) return res.status(400).json({ message: checked.error });
 
+    const before = product.toObject();
     const keptUrls = new Set(checked.value.images.map((image) => image.url));
     const removed = (product.images || []).filter((image) => !keptUrls.has(image.url));
 
     Object.assign(product, checked.value, { updatedBy: authorOf(admin) });
     await product.save();
+    await logUpdated(admin, 'product', before, product);
     removed.forEach((image) => deleteImageByUrl(image.url));
     res.json(product);
   } catch (error) {
@@ -180,12 +184,15 @@ const setProductActive = async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
     if (!mongoose.Types.ObjectId.isValid(req.params.productId)) return res.status(404).json({ message: 'Product not found.' });
+    const before = await Product.findById(req.params.productId).lean();
+    if (!before) return res.status(404).json({ message: 'Product not found.' });
     const product = await Product.findByIdAndUpdate(
       req.params.productId,
       { $set: { isActive: Boolean(req.body.isActive), updatedBy: authorOf(admin) } },
       { new: true }
     );
     if (!product) return res.status(404).json({ message: 'Product not found.' });
+    await logActiveChange(admin, 'product', before, product);
     res.json(product);
   } catch (error) {
     serverError(res, 'changing product visibility', error);
@@ -199,6 +206,7 @@ const deleteProduct = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.productId)) return res.status(404).json({ message: 'Product not found.' });
     const product = await Product.findByIdAndDelete(req.params.productId);
     if (!product) return res.status(404).json({ message: 'Product not found.' });
+    await logDeleted(admin, 'product', product);
     (product.images || []).forEach((image) => deleteImageByUrl(image.url));
     res.json({ message: 'Product deleted.' });
   } catch (error) {
@@ -232,6 +240,7 @@ const createProductCategory = async (req, res) => {
     if (duplicate) return res.status(400).json({ message: 'A category with this name already exists.' });
     const sortOrder = Number.isInteger(Number(req.body.sortOrder)) ? Number(req.body.sortOrder) : 0;
     const category = await ProductCategory.create({ name, sortOrder });
+    await logCreated(admin, 'category', category);
     res.status(201).json(category);
   } catch (error) {
     serverError(res, 'creating a product category', error);
@@ -246,6 +255,7 @@ const updateProductCategory = async (req, res) => {
     const category = await ProductCategory.findById(req.params.categoryId);
     if (!category) return res.status(404).json({ message: 'Category not found.' });
     const oldName = category.name;
+    const before = category.toObject();
 
     if (req.body.name !== undefined) {
       const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
@@ -259,6 +269,7 @@ const updateProductCategory = async (req, res) => {
       category.sortOrder = Number(req.body.sortOrder);
     }
     await category.save();
+    await logUpdated(admin, 'category', before, category);
     if (category.name !== oldName) {
       await Product.updateMany({ category: oldName }, { $set: { category: category.name } });
     }
@@ -276,6 +287,7 @@ const deleteProductCategory = async (req, res) => {
     const category = await ProductCategory.findByIdAndDelete(req.params.categoryId);
     if (!category) return res.status(404).json({ message: 'Category not found.' });
     await Product.updateMany({ category: category.name }, { $set: { category: '' } });
+    await logDeleted(admin, 'category', category);
     res.json({ message: 'Category deleted.' });
   } catch (error) {
     serverError(res, 'deleting a product category', error);

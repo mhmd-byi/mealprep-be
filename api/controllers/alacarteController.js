@@ -10,6 +10,7 @@ const { getExcludedUserIds } = require('../utils/excludedAccounts');
 const { loadHolidayKeys } = require('../utils/planProjection');
 const { IST_ZONE, parseCalendarDate, calendarDateKey } = require('../utils/dateUtils');
 const { PAID_STATUSES, resolveRange, buildDailySales } = require('../utils/alacarteSales');
+const { logSlotsChange } = require('../utils/catalogLog');
 const { createOrder, markPaid, reconcilePayment, changeStatus, getSettings } = require('../utils/alacarteService');
 const {
   DELIVERY_DAYS_AHEAD,
@@ -299,7 +300,9 @@ const updateAdminSettings = async (req, res) => {
     if (!admin) return;
     const checked = validateSlots(req.body.slots);
     if (checked.error) return res.status(400).json({ message: checked.error });
+    const before = (await getSettings()).slots;
     await AlacarteSetting.findOneAndUpdate({ key: 'main' }, { $set: { slots: checked.slots } }, { upsert: true });
+    await logSlotsChange(admin, before, checked.slots);
     res.json(await getSettings());
   } catch (error) {
     serverError(res, 'saving the à la carte settings', error);

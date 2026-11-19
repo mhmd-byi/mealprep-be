@@ -3,6 +3,7 @@ const CarbType = require('../models/carbTypeModel');
 const Subscription = require('../models/subscriptionModel');
 const { requireAdmin } = require('../utils/requireAdmin');
 const { DEFAULT_CARB_TYPES, MACRO_KEYS, shapeCarbType, loadAllCarbTypes } = require('../utils/carbTypeCatalog');
+const { logCreated, logDeleted, logUpdated, logActiveChange, logSetup } = require('../utils/catalogLog');
 
 const SLUG_PATTERN = /^[a-z0-9-]{2,40}$/;
 
@@ -124,7 +125,8 @@ const setupDefaultCarbTypes = async (req, res) => {
     if ((await CarbType.estimatedDocumentCount()) > 0) {
       return res.status(409).json({ message: 'Carb types are already set up.' });
     }
-    await CarbType.insertMany(DEFAULT_CARB_TYPES);
+    const created = await CarbType.insertMany(DEFAULT_CARB_TYPES);
+    await logSetup(admin, 'carb-type', created, 'Default carb types');
     res.status(201).json(await buildAdminList());
   } catch (error) {
     serverError(res, 'setting up the default carb types', error);
@@ -140,7 +142,8 @@ const createCarbType = async (req, res) => {
     if (checked.error) return res.status(400).json({ message: checked.error });
 
     if ((await CarbType.estimatedDocumentCount()) === 0) {
-      await CarbType.insertMany(DEFAULT_CARB_TYPES);
+      const created = await CarbType.insertMany(DEFAULT_CARB_TYPES);
+      await logSetup(admin, 'carb-type', created, 'Default carb types');
     }
 
     const duplicate = await CarbType.findOne({
@@ -149,6 +152,7 @@ const createCarbType = async (req, res) => {
     if (duplicate) return res.status(400).json({ message: 'A carb type with this name already exists.' });
 
     const carbType = await CarbType.create(checked.value);
+    await logCreated(admin, 'carb-type', carbType);
     res.status(201).json(shapeCarbType(carbType.toObject()));
   } catch (error) {
     serverError(res, 'creating a carb type', error);
@@ -172,9 +176,11 @@ const updateCarbType = async (req, res) => {
       if (duplicate) return res.status(400).json({ message: 'A carb type with this name already exists.' });
     }
 
+    const before = carbType.toObject();
     Object.assign(carbType, checked.value);
     carbType.markModified('nutrition');
     await carbType.save();
+    await logUpdated(admin, 'carb-type', before, carbType);
     res.json(shapeCarbType(carbType.toObject()));
   } catch (error) {
     serverError(res, 'updating a carb type', error);
@@ -188,8 +194,11 @@ const setCarbTypeActive = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.carbTypeId)) return res.status(404).json({ message: 'Carb type not found.' });
     if (typeof req.body.isActive !== 'boolean') return res.status(400).json({ message: 'isActive must be true or false.' });
 
+    const before = await CarbType.findById(req.params.carbTypeId).lean();
+    if (!before) return res.status(404).json({ message: 'Carb type not found.' });
     const carbType = await CarbType.findByIdAndUpdate(req.params.carbTypeId, { $set: { isActive: req.body.isActive } }, { new: true }).lean();
     if (!carbType) return res.status(404).json({ message: 'Carb type not found.' });
+    await logActiveChange(admin, 'carb-type', before, carbType);
     res.json(shapeCarbType(carbType));
   } catch (error) {
     serverError(res, 'changing a carb type', error);
@@ -209,6 +218,7 @@ const deleteCarbType = async (req, res) => {
     }
 
     await carbType.deleteOne();
+    await logDeleted(admin, 'carb-type', carbType);
     res.json({ message: 'Carb type deleted.' });
   } catch (error) {
     serverError(res, 'deleting a carb type', error);

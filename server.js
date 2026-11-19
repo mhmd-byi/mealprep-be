@@ -36,6 +36,7 @@ const adminUploadRoutes = require('./api/routes/adminUploadRoutes');
 const notificationRoutes = require('./api/routes/notificationRoutes');
 const alacarteRoutes = require('./api/routes/alacarteRoutes');
 const planRoutes = require('./api/routes/planRoutes');
+const catalogLogRoutes = require('./api/routes/catalogLogRoutes');
 const carbTypeRoutes = require('./api/routes/carbTypeRoutes');
 const contactMessageRoutes = require('./api/routes/contactMessageRoutes');
 
@@ -105,6 +106,7 @@ adminUploadRoutes.adminUploadRoutes(app);
 notificationRoutes.notificationRoutes(app);
 alacarteRoutes.alacarteRoutes(app);
 planRoutes.planRoutes(app);
+catalogLogRoutes.catalogLogRoutes(app);
 carbTypeRoutes.carbTypeRoutes(app);
 contactMessageRoutes.contactMessageRoutes(app);
 
