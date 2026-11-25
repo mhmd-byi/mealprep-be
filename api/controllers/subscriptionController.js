@@ -26,6 +26,7 @@ const { getExcludedUserIds, isExcludedUser } = require('../utils/excludedAccount
 const { cleanTastePreferences, describeTastePreferences } = require('../utils/tastePreferences');
 const { logSubscriptionActivity } = require('../utils/subscriptionActivity');
 const { sendAdminPurchaseAlert } = require('../utils/purchaseAlert');
+const { sendCustomerPlanEmail } = require('../utils/planEmails');
 const AlacarteOrder = require('../models/alacarteOrderModel');
 const { markPaid: markAlacarteOrderPaid } = require('../utils/alacarteService');
 const { LUNCH_DINNER_VALUES, loadAllPlans, findPlanByName, quotePlan, pricePerMealOfPlan } = require('../utils/planCatalog');
@@ -1183,6 +1184,7 @@ const verifyPayment = async (req, res) => {
     await logSubscriptionActivity(savedSubscription);
     if (clientType === 'mobile') {
       sendAdminPurchaseAlert(savedSubscription, lunchDinner, newStatus === 'queued');
+      sendCustomerPlanEmail(userId, savedSubscription.plan, newStatus === 'queued');
     }
 
     res.status(201).json({

@@ -14,6 +14,7 @@ const {
 const { cleanTastePreferences } = require('../utils/tastePreferences');
 const { logSubscriptionActivity } = require('../utils/subscriptionActivity');
 const { sendAdminPurchaseAlert } = require('../utils/purchaseAlert');
+const { sendCustomerPlanEmail } = require('../utils/planEmails');
 const { findPlanByName, pricePerMealOfPlan } = require('../utils/planCatalog');
 const { findCarbType } = require('../utils/carbTypeCatalog');
 
@@ -161,6 +162,7 @@ const createAdminSubscription = async (req, res) => {
       after: snapshot(subscription)
     });
     await logSubscriptionActivity(subscription);
+    sendCustomerPlanEmail(user, subscription.plan, status === 'queued');
     if (clientType === 'mobile') {
       sendAdminPurchaseAlert(subscription, lunchDinner, status === 'queued', { manualReason: reason.trim(), paymentMethod });
     }
