@@ -40,6 +40,17 @@ const validateContent = (input) => {
   return { value: { title, body, category, route } };
 };
 
+const listCustomers = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const customers = await User.find({ role: 'user' }, 'firstName lastName mobile email').sort({ firstName: 1, lastName: 1 }).lean();
+    res.json(customers);
+  } catch (error) {
+    serverError(res, 'Error listing notification customers:', error);
+  }
+};
+
 const previewAudience = async (req, res) => {
   try {
     const admin = await requireAdmin(req, res);
@@ -402,6 +413,7 @@ const updatePreferences = async (req, res) => {
 };
 
 module.exports = {
+  listCustomers,
   previewAudience,
   createNotification,
   listNotifications,

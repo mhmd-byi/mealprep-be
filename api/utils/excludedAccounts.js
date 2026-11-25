@@ -2,8 +2,9 @@ const User = require('../models/userModel');
 
 // Known test/internal customer accounts (regular 'user'-role signups used to
 // try out the real customer flow, not admin logins) that must never appear
-// anywhere in the admin panel — not counted, not listed, not selectable, not
-// sent customer-facing notifications.
+// anywhere in the admin panel — not counted, not listed, not selectable. The
+// Notifications module is the one exception: the test customer can be picked
+// and receives notifications so push delivery can be tried end to end.
 const TEST_CUSTOMER_EMAILS = ['ermoinzafar+test@byi.com'];
 
 // IDs of every account (admin role + the test emails above) that should be

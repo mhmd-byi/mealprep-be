@@ -3,7 +3,6 @@ const MealCancellation = require('../models/mealcancellation');
 const Notification = require('../models/notificationModel');
 const NotificationSetting = require('../models/notificationSettingModel');
 const User = require('../models/userModel');
-const { getExcludedUserIds } = require('./excludedAccounts');
 const { projectExhaustionDate, loadHolidayKeys } = require('./planProjection');
 const { DateTime } = require('luxon');
 const { sendWhatsAppMessage } = require('./sendWhatsApp');
@@ -115,9 +114,8 @@ const finishCampaign = async (campaign, result) => {
 };
 
 const customerIds = async (userIds) => {
-  const excluded = new Set((await getExcludedUserIds()).map(String));
   const users = await User.find({ _id: { $in: userIds }, role: 'user' }, 'firstName').lean();
-  return new Map(users.filter((user) => !excluded.has(String(user._id))).map((user) => [String(user._id), user]));
+  return new Map(users.map((user) => [String(user._id), user]));
 };
 
 const runPlanEnding = async (setting) => {

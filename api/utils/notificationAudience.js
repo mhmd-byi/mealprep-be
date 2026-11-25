@@ -1,7 +1,6 @@
 const User = require('../models/userModel');
 const Subscription = require('../models/subscriptionModel');
 const DeviceToken = require('../models/deviceTokenModel');
-const { getExcludedUserIds } = require('./excludedAccounts');
 const { projectExhaustionDate, loadHolidayKeys } = require('./planProjection');
 const { todayCalendarDateUTC, diffInCalendarDays } = require('./dateUtils');
 
@@ -142,11 +141,7 @@ const buildSnapshot = ({ user, subs, hasDevice, holidayKeys, today, now = Date.n
 };
 
 const loadCustomerSnapshots = async () => {
-  const excludedIds = await getExcludedUserIds();
-  const users = await User.find(
-    { role: 'user', _id: { $nin: excludedIds } },
-    'firstName lastName mobile postalAddress createdAt notificationPrefs'
-  ).lean();
+  const users = await User.find({ role: 'user' }, 'firstName lastName mobile postalAddress createdAt notificationPrefs').lean();
   const ids = users.map((user) => user._id);
 
   const [subscriptions, deviceUserIds, holidayKeys] = await Promise.all([

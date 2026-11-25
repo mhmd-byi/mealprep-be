@@ -2,6 +2,7 @@ const controller = require('../controllers/notificationController');
 
 const notificationRoutes = function(app) {
   app.route('/admin/notifications').get(controller.listNotifications).post(controller.createNotification);
+  app.route('/admin/notifications/customers').get(controller.listCustomers);
   app.route('/admin/notifications/preview').post(controller.previewAudience);
   app.route('/admin/notifications/test').post(controller.sendTestNotification);
   app.route('/admin/notifications/:notificationId').get(controller.getNotification);
